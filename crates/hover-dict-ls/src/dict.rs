@@ -18,7 +18,7 @@ pub struct DictEntry {
 
 pub struct Dictionary {
     map: HashMap<String, DictEntry>,
-    /// 中文词索引：从词条翻译文本里提取的 2~4 字全中文片段。
+    /// 中文词索引：从词条翻译文本里提取的 2~3 字全中文片段。
     /// 用于中文正向最大匹配（FMM）分词，O(1) 判定子串是否为有效中文词。
     chinese_words: std::collections::HashSet<String>,
 }
@@ -80,13 +80,15 @@ impl Dictionary {
                             };
                             map.insert(key.to_lowercase(), entry);
 
-                            // 从翻译文本提取 2~4 字全中文片段，建中文词索引
+                            // 从翻译文本提取 2~3 字全中文片段，建中文词索引。
+                            // 仅取 2~3 字：4 字中文多为短语/句子碎片，作 FMM
+                            // 词典词价值低且占近半索引内存；FMM 退化为 2+2 切分。
                             for frag in translation.split(sep) {
                                 let chars: Vec<char> = frag
                                     .chars()
                                     .filter(|c| c.is_alphanumeric() && !c.is_ascii())
                                     .collect();
-                                if chars.len() >= 2 && chars.len() <= 4 {
+                                if chars.len() >= 2 && chars.len() <= 3 {
                                     chinese_words.insert(chars.iter().collect());
                                 }
                             }
@@ -124,7 +126,7 @@ impl Dictionary {
             .chars()
             .filter(|c| c.is_alphanumeric() && !c.is_ascii())
             .collect();
-        if chars.len() < 2 || chars.len() > 4 {
+        if chars.len() < 2 || chars.len() > 3 {
             return false;
         }
         self.chinese_words
