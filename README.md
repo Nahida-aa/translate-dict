@@ -109,36 +109,7 @@ The built-in ~760k-word English dictionary is derived from **[ECDICT](https://gi
 
 [MIT](LICENSE) © 2026 Nahida-aa
 
-## Publishing (上架 Zed 扩展商店)
+## Contributing
 
-Zed 扩展**不**支持作者自发布命令；所有扩展都经官方中央仓库审核分发。流程：
-
-1. Fork [zed-industries/extensions](https://github.com/zed-industries/extensions)。
-2. 在 fork 里把本仓库作为 submodule 加入（用 **main 分支最新 commit**，不要用 tag/detached commit）：
-
-   ```sh
-   git submodule add https://github.com/Nahida-aa/hover-dict.git extensions/hover-dict
-   git add extensions/hover-dict
-   ```
-
-3. 在顶层 `extensions.toml` 追加（version 与 extension.toml 的 version 保持一致）：
-
-   ```toml
-   [hover-dict]
-   submodule = "extensions/hover-dict"
-   version = "0.1.0"
-   ```
-
-4. 运行 `pnpm sort-extensions` 排序后开 PR 到 `zed-industries/extensions`。
-5. 合并后官方自动打包 `extension.wasm` 并发布到 Zed 扩展商店。
-
-**前置约束（Zed 审核规则）**：
-- 扩展 ID/名称不得含 `zed`/`extension`（本扩展 `hover-dict` 符合）。
-- 语言服务器**不得**随扩展打包，必须运行时下载——本扩展从 GitHub release 拉取
-  `hover-dict-ls-<version>-<target>.zip`（见 `src/lib.rs` 的 `download_ls`），符合。
-- 仓库根须有被接受的 LICENSE（MIT，已具备）。
-
-**LS 二进制如何就位**：打 `v*` tag 后，本仓库的 GitHub Actions（`.github/workflows/release.yml`，
-由 cargo-dist 生成）会自动为 6 个平台编译 `hover-dict-ls` 并上传到对应 GitHub release，
-扩展壳运行时按平台下载。
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to publish this extension to the Zed extension store.
 
