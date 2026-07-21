@@ -92,6 +92,28 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     Ok(binary_path)
 }
 
+/// 本地开发回退：优先使用本地已编译的 LS 二进制，避免每次都从 GitHub 下载。
+/// 查找顺序：
+///   1. 环境变量 HOVER_DICT_LS_BIN（显式指定）
+///   2. 当前目录下的 target/release 与 target/debug
+///   3. 仓库根（CARGO_MANIFEST_DIR 不适用 wasm，故用 cwd 推断）
+/// 找不到返回 None，由调用方回退到 GitHub release 下载。
+fn local_ls_binary() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("HOVER_DICT_LS_BIN") {
+        let pb = PathBuf::from(&p);
+        if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
+            return Some(pb);
+        }
+    }
+    for dir in ["target/release", "target/debug"] {
+        let pb = Path::new(dir).join(executable_name("hover-dict-ls"));
+        if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
+            return Some(pb);
+        }
+    }
+    None
+}
+
 impl TranslateDictExtension {
     fn language_server_binary_path(
         &mut self,
@@ -101,6 +123,11 @@ impl TranslateDictExtension {
             if fs::metadata(path).is_ok_and(|s| s.is_file()) {
                 return Ok(path.clone());
             }
+        }
+        // 本地开发：优先用本地编译好的 LS 二进制
+        if let Some(path) = local_ls_binary() {
+            self.cached_ls_binary_path = Some(path.clone());
+            return Ok(path);
         }
         let path = download_ls(language_server_id)?;
         self.cached_ls_binary_path = Some(path.clone());
