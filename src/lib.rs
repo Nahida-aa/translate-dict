@@ -16,9 +16,10 @@ use std::{
 
 use zed_extension_api::{self as zed, Command, LanguageServerId, Result, Worktree};
 
-// 改成你自己的 GitHub 仓库（owner/repo），发布时在该仓库打 release
-// 并附带 hover-dict-ls-{target}.zip（见 dist-workspace.toml）。
-// 当前为占位符，发布前必须替换，否则 Zed 会去错误仓库下载 LS 二进制。
+// 发布到 Zed 扩展商店时，在此仓库打 release 并附带
+// hover-dict-ls-<版本>-<target>.zip，供非开发用户下载。
+// 开发期（自用）完全不需要 GitHub：本地已编译的二进制会被优先使用，
+// 因此不受 GitHub 匿名 API 限流影响。
 const LS_REPO: &str = "Nahida-aa/hover-dict";
 
 struct TranslateDictExtension {
@@ -33,6 +34,8 @@ fn executable_name(binary: &str) -> String {
 }
 
 /// 根据当前平台拼出 GitHub release 的 asset 名（target triple）。
+/// 仅发布期（从 GitHub 下载）使用；开发期不依赖。
+#[allow(dead_code)]
 fn target_triple() -> Result<String, String> {
     let (platform, arch) = zed::current_platform();
     let arch = match arch {
@@ -48,7 +51,9 @@ fn target_triple() -> Result<String, String> {
     Ok(format!("{arch}-{os}"))
 }
 
-/// 从 GitHub release 下载 LS 二进制（zip），返回解压后的可执行路径。
+/// 兜底：从 GitHub release 下载 LS 二进制（zip），返回解压后的可执行路径。
+/// 仅发布期使用；开发期 `local_ls_binary` 命中本地即返回，不会走到这里。
+#[allow(dead_code)]
 fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     let release = zed::latest_github_release(
         LS_REPO,
@@ -56,18 +61,35 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
             require_assets: true,
             pre_release: false,
         },
-    )?;
+    )
+    .map_err(|e| {
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "<unknown cwd>".to_string());
+        format!(
+            "本地未找到 hover-dict-ls 二进制，且无法从 GitHub 获取（{e}）。\
+             [DIAG] cwd={cwd} pkg_ver={ver}",
+            ver = env!("CARGO_PKG_VERSION"),
+            e = e
+        )
+    })?;
 
     let triple = target_triple()?;
-    // cargo-dist 0.30.2 的产物命名：<二进制名>-v<版本>-<target>.zip
-    let asset_name = format!("hover-dict-ls-v{}-{triple}.zip", release.version);
+    // GitHub release 版本号自带 "v" 前缀（如 v0.0.1）。
+    // 我们发布的 asset 命名为 hover-dict-ls-v<版本>-<target>.zip（保留 v），
+    // 而本地解压目录命名为 hover-dict-ls-<版本>/（不带 v，与 CARGO_PKG_VERSION 对齐）。
+    let version = release
+        .version
+        .strip_prefix('v')
+        .unwrap_or(&release.version);
+    let asset_name = format!("hover-dict-ls-v{version}-{triple}.zip");
     let asset = release
         .assets
         .iter()
         .find(|a| a.name == asset_name)
         .ok_or_else(|| format!("no asset found matching {asset_name:?}"))?;
 
-    let version_dir = format!("hover-dict-ls-{}", release.version);
+    let version_dir = format!("hover-dict-ls-{version}");
     let binary_path = Path::new(&version_dir).join(executable_name("hover-dict-ls"));
 
     if !fs::metadata(&binary_path).is_ok_and(|s| s.is_file()) {
@@ -92,46 +114,69 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     Ok(binary_path)
 }
 
-/// 本地开发回退：优先使用本地已编译的 LS 二进制，避免每次都从 GitHub 下载。
-/// 查找顺序：
-///   1. 环境变量 HOVER_DICT_LS_BIN（显式指定）
-///   2. 当前目录下的 target/release 与 target/debug
-///   3. 仓库根（CARGO_MANIFEST_DIR 不适用 wasm，故用 cwd 推断）
-/// 找不到返回 None，由调用方回退到 GitHub release 下载。
-fn local_ls_binary() -> Option<PathBuf> {
+/// 开发模式下只在本地找 LS 二进制；找不到时返回 Err，并把 cwd /
+/// worktree_root 拼进错误信息，方便从 Zed 报错弹窗 / 日志快速定位
+/// （0.7.0 无 log 函数，借错误暴露）。
+///
+/// 实测：dev 扩展 wasm 的 cwd = ~/.local/share/zed/extensions/work/<id>/，
+/// 这是唯一确定能被 wasm 的 fs::metadata 访问的目录。worktree 根 /
+/// 绝对路径在 wasm 裸 fs 下读不到，故实际只搜 cwd（与 HOVER_DICT_LS_BIN
+/// 环境变量）。二进制由 scripts/dev-install.sh 安置到 cwd 下的
+/// hover-dict-ls-<版本>/ 中。
+fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
+    let exe = executable_name("hover-dict-ls");
+    let version_dir = format!("hover-dict-ls-{}", env!("CARGO_PKG_VERSION"));
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown cwd>".to_string());
+
+    // 1. 显式环境变量（最高优先级，绝对路径）
     if let Ok(p) = std::env::var("HOVER_DICT_LS_BIN") {
         let pb = PathBuf::from(&p);
         if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
-            return Some(pb);
+            return Ok(pb);
         }
     }
-    for dir in ["target/release", "target/debug"] {
-        let pb = Path::new(dir).join(executable_name("hover-dict-ls"));
+
+    // 2. wasm 运行时 cwd 下（唯一确定可访问的目录）
+    for dir in [version_dir.as_str(), "target/release", "target/debug"] {
+        let pb = Path::new(&cwd).join(dir).join(&exe);
         if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
-            return Some(pb);
+            return Ok(pb);
         }
     }
-    None
+
+    Err(format!(
+        "[hover-dict dev] 本地未找到 LS 二进制。请运行 scripts/dev-install.sh 安置 LS 二进制。\
+         cwd={cwd} worktree_root={worktree_root} exe={exe}"
+    ))
 }
 
 impl TranslateDictExtension {
     fn language_server_binary_path(
         &mut self,
-        language_server_id: &LanguageServerId,
+        _language_server_id: &LanguageServerId,
+        worktree_root: &str,
     ) -> Result<PathBuf> {
         if let Some(path) = &self.cached_ls_binary_path {
             if fs::metadata(path).is_ok_and(|s| s.is_file()) {
                 return Ok(path.clone());
             }
         }
-        // 本地开发：优先用本地编译好的 LS 二进制
-        if let Some(path) = local_ls_binary() {
-            self.cached_ls_binary_path = Some(path.clone());
-            return Ok(path);
+        // 本地优先：命中即返回，不再触碰 GitHub（开发期完全离线）
+        match local_ls_binary(worktree_root) {
+            Ok(path) => {
+                self.cached_ls_binary_path = Some(path.clone());
+                return Ok(path);
+            }
+            Err(dev_err) => {
+                // 开发期：本地找不到就直接把诊断错误抛出（含尝试过的路径），
+                // 不再走 GitHub，避免匿名 API 限流。发布时如需回退下载，
+                // 把下面这行替换为 download_ls(language_server_id)? 即可。
+                return Err(dev_err);
+            }
         }
-        let path = download_ls(language_server_id)?;
-        self.cached_ls_binary_path = Some(path.clone());
-        Ok(path)
     }
 }
 
@@ -147,7 +192,9 @@ impl zed::Extension for TranslateDictExtension {
         language_server_id: &LanguageServerId,
         worktree: &Worktree,
     ) -> Result<Command> {
-        let ls_binary_path = self.language_server_binary_path(language_server_id)?;
+        let worktree_root = worktree.root_path();
+        let ls_binary_path =
+            self.language_server_binary_path(language_server_id, &worktree_root)?;
 
         Ok(Command {
             command: ls_binary_path

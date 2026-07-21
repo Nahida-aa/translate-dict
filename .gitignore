@@ -5,3 +5,7 @@
 
 # 本地手动打包产物（release zip 由 CI / 手动 gh release 生成，不进仓库）
 hover-dict-ls-v*/
+hover-dict-ls-*/
+
+# dev 模式编译产物（Zed 自动编译 wasm，不进仓库）
+extension.wasm
