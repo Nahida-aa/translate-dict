@@ -2,3 +2,6 @@
 **/*.rs.bk
 
 .agents/*.local.md
+
+# 本地手动打包产物（release zip 由 CI / 手动 gh release 生成，不进仓库）
+hover-dict-ls-v*/
