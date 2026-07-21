@@ -106,6 +106,17 @@ impl LspClient {
             "params": params,
         }));
     }
+
+    /// 模拟文件内容变化（Full 同步：传完整最新文本）
+    fn did_change(&mut self, uri: &str, version: i32, text: &str) {
+        self.notify(
+            "textDocument/didChange",
+            serde_json::json!({
+                "textDocument": { "uri": uri, "version": version },
+                "contentChanges": [{ "text": text }],
+            }),
+        );
+    }
 }
 
 impl Drop for LspClient {
@@ -223,5 +234,68 @@ fn e2e_hover_chinese_reverse() {
     assert!(
         md.contains("中译英") && (md.contains("[item](") || md.contains("[project](")),
         "unexpected chinese reverse result:\n{md}"
+    );
+}
+
+/// 回归测试：文件编辑后缓存必须刷新，否则 hover 会翻译旧位置的旧词。
+#[test]
+fn e2e_hover_after_edit_reflects_new_text() {
+    let mut client = LspClient::start();
+    initialize(&mut client);
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    let uri = "file:///edit.rs";
+    // 先打开：第 0 行是 "let a = redblacktree;"（line 0）
+    client.notify(
+        "textDocument/didOpen",
+        serde_json::json!({
+            "textDocument": {
+                "uri": uri,
+                "languageId": "rust",
+                "version": 1,
+                "text": "let a = redblacktree;\nlet b = userProfile;",
+            }
+        }),
+    );
+    // hover 第 1 行 "userProfile" 在 (12, 22)
+    let before = client.request(
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 1, "character": 17 },
+        }),
+    );
+    let before_md = before["result"]
+        .get("contents")
+        .and_then(|c| c.get("value"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    assert!(
+        before_md.map(|m| m.contains("[user](")).unwrap_or(false),
+        "precondition: expect 'user' in old text"
+    );
+
+    // 编辑第 1 行：把 userProfile 换成 getUserProfile（更多分词）
+    client.did_change(uri, 2, "let a = redblacktree;\nlet b = getUserProfile;");
+
+    // 现在 hover 同一位置应反映新文本（含 get / user / profile）
+    let after = client.request(
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 1, "character": 17 },
+        }),
+    );
+    let after_md = after["result"]
+        .get("contents")
+        .and_then(|c| c.get("value"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .expect("hover after edit should return a result");
+    assert!(
+        after_md.contains("[get](")
+            && after_md.contains("[user](")
+            && after_md.contains("[profile]("),
+        "after edit, cache should reflect new text; got:\n{after_md}"
     );
 }

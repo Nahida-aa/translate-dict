@@ -97,6 +97,11 @@ impl LanguageServer for HoverDictServer {
             }),
             capabilities: ServerCapabilities {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                // Full 同步：Zed 在每次编辑后把整篇文档文本发回来，
+                // 这样 DOCUMENTS 缓存始终是最新内容，hover 才能翻译新代码。
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 ..Default::default()
             },
         })
@@ -126,6 +131,21 @@ impl LanguageServer for HoverDictServer {
             .await
             .open(&params.text_document)
             .await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let docs = DOCUMENTS.get_or_init(|| async { DocStore::new() }).await;
+        // Full 同步下 content_changes[0].text 即完整最新文档文本
+        if let Some(change) = params.content_changes.into_iter().next() {
+            docs.update(&params.text_document.uri, &change.text).await;
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        // 文件关闭时丢弃缓存，避免持有已不活跃文档的过期文本
+        if let Some(docs) = DOCUMENTS.get() {
+            docs.remove(&params.text_document.uri).await;
+        }
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -249,9 +269,17 @@ mod documents {
             Self::default()
         }
 
+        /// 文件首次打开：缓存整行文本。
         pub async fn open(&self, doc: &TextDocumentItem) {
             let lines: Vec<String> = doc.text.split('\n').map(|s| s.to_string()).collect();
             self.inner.write().await.insert(doc.uri.clone(), lines);
+        }
+
+        /// 文件内容变化：用最新全文刷新缓存。
+        /// 必须处理，否则编辑后缓存的是旧文本，hover 会翻译旧位置的旧词。
+        pub async fn update(&self, uri: &Url, text: &str) {
+            let lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
+            self.inner.write().await.insert(uri.clone(), lines);
         }
 
         pub async fn get_line(&self, uri: &Url, line: usize) -> Option<String> {
@@ -260,6 +288,11 @@ mod documents {
                 .await
                 .get(uri)
                 .and_then(|l| l.get(line).cloned())
+        }
+
+        /// 文件关闭：移除缓存，避免持有过期文本占用内存
+        pub async fn remove(&self, uri: &Url) {
+            self.inner.write().await.remove(uri);
         }
     }
 }
