@@ -14,6 +14,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
+// 编译期嵌入的内置词库（build.rs 生成字面量路径到 OUT_DIR/embedded_dict.rs）。
+// 仅发布二进制需要它；开发期有文件系统 dict/，不会用到这份嵌入副本。
+include!(concat!(env!("OUT_DIR"), "/embedded_dict.rs"));
+
 #[derive(Clone)]
 pub struct DictEntry {
     pub phonetic: String,
@@ -90,6 +94,84 @@ impl Dictionary {
                                 if chars.len() >= 2 && chars.len() <= 3 {
                                     chinese_words.insert(chars.iter().collect());
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Self { map, chinese_words }
+    }
+
+    /// 加载词库：优先读文件系统的 dict/（开发期，便于改词库不重编二进制），
+    /// 找不到时回退到编译期嵌入的 dict/（发布二进制自带，无需外部文件）。
+    /// 这样发布的 LS 二进制是自包含的——cargo-dist 只打包二进制，
+    /// 不会带 dict/ 目录，必须靠嵌入才能给最终用户正常翻译。
+    pub fn load() -> Self {
+        let fs_dir = crate::dict_dir();
+        let fs_dict = Self::load_from_dir(&fs_dir);
+        if !fs_dict.map.is_empty() {
+            return fs_dict;
+        }
+        Self::load_embedded()
+    }
+
+    /// 从编译期嵌入的 dict/ 加载（include_dir! 在编译时把整个目录打进二进制）。
+    fn load_embedded() -> Self {
+        let mut map: AHashMap<String, DictEntry> = AHashMap::new();
+        let mut chinese_words: AHashSet<String> = AHashSet::new();
+
+        let sep: &[char] = &[
+            '；', ';', '、', '，', ',', ' ', '\n', '.', '：', ':', '（', '(', '）', ')', '《', '<',
+            '》', '>', '“', '"', '”', '【', '[', '】', ']', '！', '!', '？', '?', '—', '~', '·',
+            '/', '\\', '-',
+        ];
+
+        for file in EMBEDDED.files() {
+            if file.path().extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(text) = std::str::from_utf8(file.contents()) {
+                if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(text) {
+                    for (key, val) in obj {
+                        let translation = match &val {
+                            Value::String(t) => t.clone(),
+                            Value::Object(o) => o
+                                .get("t")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            _ => continue,
+                        };
+                        let entry = match val {
+                            Value::String(t) => DictEntry {
+                                phonetic: String::new(),
+                                translation: t,
+                            },
+                            Value::Object(o) => DictEntry {
+                                phonetic: o
+                                    .get("p")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                translation: o
+                                    .get("t")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            },
+                            _ => continue,
+                        };
+                        map.insert(key.to_lowercase(), entry);
+
+                        for frag in translation.split(sep) {
+                            let chars: Vec<char> = frag
+                                .chars()
+                                .filter(|c| c.is_alphanumeric() && !c.is_ascii())
+                                .collect();
+                            if chars.len() >= 2 && chars.len() <= 3 {
+                                chinese_words.insert(chars.iter().collect());
                             }
                         }
                     }
@@ -195,5 +277,22 @@ mod tests {
         let dict = Dictionary::load_from_dir(dir.path());
         assert!(dict.lookup("nonexistent").is_none());
         assert!(dict.contains("nonexistent") == false);
+    }
+
+    /// 验证编译期嵌入词库可用（发布二进制无外部 dict/ 时的回退路径）。
+    /// 嵌入的是仓库根完整词库，应含常见词如 "user"。
+    #[test]
+    fn test_load_embedded_fallback() {
+        let dict = Dictionary::load_embedded();
+        assert!(
+            !dict.map.is_empty(),
+            "embedded dict should not be empty; check build.rs path"
+        );
+        assert!(
+            dict.lookup("user").is_some(),
+            "embedded dict missing 'user'"
+        );
+        // 中文词索引应已建立（用户 是 2 字中文词）
+        assert!(dict.is_chinese_word("用户"), "embedded dict missing 用户");
     }
 }

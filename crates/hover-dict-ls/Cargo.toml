@@ -3,6 +3,7 @@ name = "hover-dict-ls"
 version.workspace = true
 edition = "2021"
 repository = "https://github.com/Nahida-aa/hover-dict"
+build = "build.rs"
 
 [[bin]]
 name = "hover-dict-ls"
@@ -10,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 ahash = "0.8"
+include_dir = "0.7"
 clap = "4.5.49"
 arc-swap = "1.7"
 serde = "1.0.228"

@@ -58,12 +58,8 @@ struct HoverDictServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for HoverDictServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // 加载词库（只加载一次）
-        DICT.get_or_init(|| async {
-            let dir = dict_dir();
-            Dictionary::load_from_dir(&dir)
-        })
-        .await;
+        // 加载词库（只加载一次）：优先文件系统 dict/，否则用编译期嵌入词库
+        DICT.get_or_init(|| async { Dictionary::load() }).await;
 
         // 读取用户配置（来自 Zed settings.json 的 lsp.hover-dict.initialization_options）
         let raw_opts = params.initialization_options.clone();

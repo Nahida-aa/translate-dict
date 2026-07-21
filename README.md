@@ -42,7 +42,11 @@ All settings are written under the `lsp.hover-dict.initialization_options` key i
 
 ### From the Zed extension store
 
-Search for **Hover Dict** in Zed's extension panel and install. The extension downloads the matching language-server binary (with bundled dictionary) from the GitHub release on first run.
+Search for **Hover Dict** in Zed's extension panel and install. On first run the extension downloads the matching language-server binary for your platform from the GitHub release. **The ~760k-word dictionary is bundled inside the binary** — no extra download or setup needed, and it works fully offline.
+
+### From GitHub release (manual)
+
+Download the `hover-dict-ls-<version>-<your-platform>.zip` asset from the latest GitHub release, extract `hover-dict-ls`, and point the extension at it via the `HOVER_DICT_LS_BIN` environment variable (absolute path). Useful if you don't use the Zed extension store.
 
 ### Dev install (local development)
 

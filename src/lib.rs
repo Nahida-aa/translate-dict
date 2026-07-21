@@ -78,14 +78,14 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     })?;
 
     let triple = target_triple()?;
-    // GitHub release 版本号自带 "v" 前缀（如 v0.0.1）。
-    // 我们发布的 asset 命名为 hover-dict-ls-v<版本>-<target>.zip（保留 v），
-    // 而本地解压目录命名为 hover-dict-ls-<版本>/（不带 v，与 CARGO_PKG_VERSION 对齐）。
+    // cargo-dist 产出的 asset 命名为 hover-dict-ls-<版本>-<target>.zip
+    // （不带 "v" 前缀，版本即 release.tag 去掉 v 后的 0.0.1）。
+    // 本地解压目录命名为 hover-dict-ls-<版本>/（与 CARGO_PKG_VERSION 对齐）。
     let version = release
         .version
         .strip_prefix('v')
         .unwrap_or(&release.version);
-    let asset_name = format!("hover-dict-ls-v{version}-{triple}.zip");
+    let asset_name = format!("hover-dict-ls-{version}-{triple}.zip");
     let asset = release
         .assets
         .iter()
@@ -159,7 +159,7 @@ fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
 impl TranslateDictExtension {
     fn language_server_binary_path(
         &mut self,
-        _language_server_id: &LanguageServerId,
+        language_server_id: &LanguageServerId,
         worktree_root: &str,
     ) -> Result<PathBuf> {
         if let Some(path) = &self.cached_ls_binary_path {
@@ -174,10 +174,19 @@ impl TranslateDictExtension {
                 return Ok(path);
             }
             Err(dev_err) => {
-                // 开发期：本地找不到就直接把诊断错误抛出（含尝试过的路径），
-                // 不再走 GitHub，避免匿名 API 限流。发布时如需回退下载，
-                // 把下面这行替换为 download_ls(language_server_id)? 即可。
-                return Err(dev_err);
+                // 本地（dev / 用户自己放置）没找到时，回退到从 GitHub release
+                // 下载预编译的 LS 二进制。发布路径走 Zed 代理拉取，不受
+                // api.github.com 匿名 60 次/小时限流影响；且二进制下载一次即
+                // 缓存到 hover-dict-ls-<ver>/，之后 hover 全程走本地，不再联网。
+                match download_ls(language_server_id) {
+                    Ok(path) => {
+                        self.cached_ls_binary_path = Some(path.clone());
+                        return Ok(path);
+                    }
+                    Err(dl_err) => Err(format!(
+                        "{dev_err}\n[hover-dict] 本地未找到 LS 二进制，且从 GitHub 下载失败：{dl_err}"
+                    )),
+                }
             }
         }
     }
