@@ -13,6 +13,3 @@ on:
 jobs:
   release:
     uses: cargo-bins/cargo-dist/.github/workflows/release.yml@v0.30.2
-    with:
-      # 仅发布 LS 二进制（hover-dict-ls）的 6 平台 zip，供 Zed 扩展壳下载
-      pr-run-mode: "upload"
