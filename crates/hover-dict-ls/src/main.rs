@@ -14,7 +14,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 mod dict;
 use dict::Dictionary;
 mod query;
-mod reverse;
+mod reverse_query;
 mod utils;
 
 /// 词库全局单例（initialize 时加载）
@@ -150,8 +150,8 @@ impl LanguageServer for HoverDictServer {
         }
 
         // 中文选中 → 中译英（reverse query）
-        if reverse::contains_chinese(&word) {
-            let results = reverse::reverse_query(&word, dict, 10);
+        if reverse_query::contains_chinese(&word) {
+            let results = reverse_query::reverse_query(&word, dict, 10);
             if results.is_empty() {
                 return Ok(None);
             }
