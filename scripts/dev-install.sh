@@ -16,10 +16,8 @@
 # 用法：
 #   ./scripts/dev-install.sh            # 编译 wasm + LS，并安置 LS 二进制
 #
-# 之后在 Zed 里：
-#   - 首次：zed: install dev extension → 选本仓库根目录
-#   - 改代码后：zed: rebuild extensions（重编 wasm）
-#   - 改 LS 后：重跑本脚本（刷新 cwd 下的 LS 二进制）→ zed: restart language server
+# Zed dev 模式会热加载：重跑本脚本覆盖二进制后即生效，
+# 无需手动 zed: install dev extension / rebuild extensions / restart language server。
 # 注意：zed: install dev extension 重装时可能清空 work/hover-dict/，
 #       届时重跑本脚本即可恢复 LS 二进制。
 
@@ -42,6 +40,14 @@ cargo build --release -p hover-dict-ls
 
 echo "==> 安置 LS 二进制到扩展运行时 cwd: $CACHE_DIR"
 mkdir -p "$CACHE_DIR"
+
+# LS 正在运行时无法覆盖二进制（text file busy），需先退出 Zed 或重启语言服务器
+if pgrep -f "$CACHE_DIR/$LS_BIN_NAME" >/dev/null 2>&1; then
+    echo "错误：检测到 hover-dict-ls 正在运行，无法覆盖二进制（text file busy）。" >&2
+    echo "请先在 Zed 中执行 'zed: restart language server' 或退出 Zed，再重跑本脚本。" >&2
+    exit 1
+fi
+
 cp "target/release/$LS_BIN_NAME" "$CACHE_DIR/$LS_BIN_NAME"
 chmod +x "$CACHE_DIR/$LS_BIN_NAME"
 
@@ -50,7 +56,6 @@ echo "    扩展壳 wasm:    $(pwd)/extension.wasm"
 echo "    LS 二进制(cwd): $CACHE_DIR/$LS_BIN_NAME"
 echo "    dict 目录(LS 运行时 cwd=仓库根, 自动可访问): $(pwd)/dict"
 echo ""
-echo "    后续："
-echo "    1) Zed 里 zed: install dev extension → 选 $(pwd)"
-echo "    2) 改扩展壳后 zed: rebuild extensions"
-echo "    3) 改 LS 后重跑本脚本 → zed: restart language server"
+echo "    说明："
+echo "    Zed dev 模式会热加载，重跑本脚本覆盖二进制后即生效，"
+echo "    无需手动 zed: install dev extension / rebuild extensions / restart language server。"

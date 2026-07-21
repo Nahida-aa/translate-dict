@@ -38,9 +38,12 @@ fn is_word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c.is_alphanumeric() && !c.is_ascii()
 }
 
-/// 从一行文本里，根据字符偏移取光标处的"单词"（按标识符边界）
-/// offset / start / end 均以字符计（LSP 对 BMP 字符 position.character 即字符序）
-fn word_at(text: &str, offset: usize) -> Option<String> {
+/// 从一行文本里，根据字符偏移取光标处的"单词"（按标识符边界）。
+/// 返回 (单词, 起始字符偏移, 结束字符偏移)。
+/// offset / start / end 均以字符计（LSP 对 ASCII 标识符 position.character 即字符序）。
+/// 返回的 start/end 用于在 hover 响应里带上 Range，使 Zed 能在鼠标移到
+/// 另一个词时自动判定旧 hover 失效并刷新（否则 range 为 None 时 Zed 不更新）。
+fn word_at(text: &str, offset: usize) -> Option<(String, usize, usize)> {
     let chars: Vec<char> = text.chars().collect();
     if offset > chars.len() {
         return None;
@@ -56,7 +59,7 @@ fn word_at(text: &str, offset: usize) -> Option<String> {
     if start == end {
         return None;
     }
-    Some(chars[start..end].iter().collect())
+    Some((chars[start..end].iter().collect(), start, end))
 }
 
 /// 生成一条词条的 Markdown（对齐 translate-dict 的 convert.ts::genMarkdown）
@@ -68,7 +71,7 @@ fn entry_to_markdown(entry: &dict::DictEntry) -> String {
     let phonetic = if entry.phonetic.is_empty() {
         String::new()
     } else {
-        format!(" */{}/**", entry.phonetic)
+        format!(" _/{}/_", entry.phonetic)
     };
     let translation = entry.translation.replace("\\n", "  \n");
     format!("- [{}]({}) {}:\n{}", entry.word, url, phonetic, translation)
@@ -142,12 +145,26 @@ impl LanguageServer for HoverDictServer {
             return Ok(None);
         };
 
-        // 计算字节偏移（LSP 用 UTF-16 列，这里按 ASCII 近似；英文标识符安全）
+        // 计算字符偏移（LSP 用 UTF-16 列，英文标识符场景下等于字符序）
         let offset = position.character as usize;
-        let word = word_at(&line_text, offset).unwrap_or_default();
+        let Some((word, start, end)) = word_at(&line_text, offset) else {
+            return Ok(None);
+        };
         if word.is_empty() {
             return Ok(None);
         }
+
+        // 被悬停词的字符范围：Zed 靠它判断"鼠标移到另一个词时旧 hover 失效并刷新"
+        let hover_range = Range {
+            start: Position {
+                line: position.line,
+                character: start as u32,
+            },
+            end: Position {
+                line: position.line,
+                character: end as u32,
+            },
+        };
 
         // 中文选中 → 中译英（reverse query）
         if reverse_query::contains_chinese(&word) {
@@ -162,7 +179,7 @@ impl LanguageServer for HoverDictServer {
                     let phonetic = if r.phonetic.is_empty() {
                         String::new()
                     } else {
-                        format!(" */{}/**", r.phonetic)
+                        format!(" _/{}/_", r.phonetic)
                     };
                     let translation = r.translation.replace("\\n", "  \n");
                     format!("- [{}]({}) {}:\n{}", r.word, url, phonetic, translation)
@@ -174,7 +191,7 @@ impl LanguageServer for HoverDictServer {
                     kind: MarkupKind::Markdown,
                     value: markdown,
                 }),
-                range: None,
+                range: Some(hover_range),
             }));
         }
 
@@ -198,7 +215,7 @@ impl LanguageServer for HoverDictServer {
                 kind: MarkupKind::Markdown,
                 value: markdown,
             }),
-            range: None,
+            range: Some(hover_range),
         }))
     }
 }
@@ -255,22 +272,25 @@ mod tests {
     #[test]
     fn test_word_at_simple() {
         let text = "let x = getUserProfile;";
-        // 在 'r' (字符 11) 处，应取到 getUserProfile
-        assert_eq!(word_at(text, 11), Some("getUserProfile".to_string()));
+        // "let x = " 占 8 个字符，getUserProfile 在 [8,22)
+        assert_eq!(
+            word_at(text, 11),
+            Some(("getUserProfile".to_string(), 8, 22))
+        );
     }
 
     #[test]
     fn test_word_at_with_underscore() {
         let text = "fn user_name() {}";
-        // 在 'r' (字符 6)
-        assert_eq!(word_at(text, 6), Some("user_name".to_string()));
+        // "fn " 占 3 个字符，user_name 在 [3,12)
+        assert_eq!(word_at(text, 6), Some(("user_name".to_string(), 3, 12)));
     }
 
     #[test]
     fn test_word_at_with_cjk() {
         // 中文按字符取词（中译英场景）
         let text = "项目";
-        assert_eq!(word_at(text, 1), Some("项目".to_string()));
+        assert_eq!(word_at(text, 1), Some(("项目".to_string(), 0, 2)));
     }
 
     #[test]
