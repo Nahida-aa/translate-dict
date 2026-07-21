@@ -18,11 +18,22 @@ pub struct DictEntry {
 
 pub struct Dictionary {
     map: HashMap<String, DictEntry>,
+    /// 中文词索引：从词条翻译文本里提取的 2~4 字全中文片段。
+    /// 用于中文正向最大匹配（FMM）分词，O(1) 判定子串是否为有效中文词。
+    chinese_words: std::collections::HashSet<String>,
 }
 
 impl Dictionary {
     pub fn load_from_dir(dir: &Path) -> Self {
         let mut map: HashMap<String, DictEntry> = HashMap::new();
+        let mut chinese_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // 从翻译文本提取中文词片段时使用的分隔符（与 reverse_query 一致）
+        let sep: &[char] = &[
+            '；', ';', '、', '，', ',', ' ', '\n', '.', '：', ':', '（', '(', '）', ')', '《', '<',
+            '》', '>', '“', '"', '”', '【', '[', '】', ']', '！', '!', '？', '?', '—', '~', '·',
+            '/', '\\', '-',
+        ];
 
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -33,6 +44,15 @@ impl Dictionary {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(&content) {
                         for (key, val) in obj {
+                            let translation = match &val {
+                                Value::String(t) => t.clone(),
+                                Value::Object(o) => o
+                                    .get("t")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                _ => continue,
+                            };
                             let entry = match val {
                                 Value::String(t) => DictEntry {
                                     word: key.clone(),
@@ -59,13 +79,24 @@ impl Dictionary {
                                 _ => continue,
                             };
                             map.insert(key.to_lowercase(), entry);
+
+                            // 从翻译文本提取 2~4 字全中文片段，建中文词索引
+                            for frag in translation.split(sep) {
+                                let chars: Vec<char> = frag
+                                    .chars()
+                                    .filter(|c| c.is_alphanumeric() && !c.is_ascii())
+                                    .collect();
+                                if chars.len() >= 2 && chars.len() <= 4 {
+                                    chinese_words.insert(chars.iter().collect());
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        Self { map }
+        Self { map, chinese_words }
     }
 
     /// 按原始变体字符串查词（变体已含大小写，内部统一转小写键）
@@ -85,6 +116,19 @@ impl Dictionary {
     /// 返回全部词条（用于中译英反向查询的全表扫描）
     pub fn all_entries(&self) -> impl Iterator<Item = &DictEntry> {
         self.map.values()
+    }
+
+    /// 中文正向最大匹配：判断 `text` 是否是一个已知中文词（在中文词索引里）
+    pub fn is_chinese_word(&self, text: &str) -> bool {
+        let chars: Vec<char> = text
+            .chars()
+            .filter(|c| c.is_alphanumeric() && !c.is_ascii())
+            .collect();
+        if chars.len() < 2 || chars.len() > 4 {
+            return false;
+        }
+        self.chinese_words
+            .contains(&chars.iter().collect::<String>())
     }
 }
 
