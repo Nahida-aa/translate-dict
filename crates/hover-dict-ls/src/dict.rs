@@ -1,9 +1,14 @@
 // 本地词库加载与查询。
 // 词库文件放在扩展仓库的 dict/ 目录，按单词前两字母分片
 // （aa.json ~ zz.json），每个文件是 { "word": {"w","p","t"} | "translation" }。
-// 启动时全部读入内存（约 760k 词，几十 MB，一次性加载、常驻）。
+// 启动时全部读入内存（约 760k 词，一次性加载、常驻）。
+//
+// 内存优化：DictEntry 不再存 word 字段——map 的键（小写词）即单词本身，
+// 重复存一份 String 是纯浪费（约 76 万条 × 一条 String 堆分配）。展示时用
+// 查询键即可（translate-dict 同样显示小写）。HashMap/HashSet 使用 ahash，
+// 比默认 SipHash 更快、桶更紧凑。
 
-use std::collections::HashMap;
+use ahash::{AHashMap, AHashSet};
 use std::fs;
 use std::path::Path;
 
@@ -11,22 +16,22 @@ use serde_json::Value;
 
 #[derive(Clone)]
 pub struct DictEntry {
-    pub word: String,
     pub phonetic: String,
     pub translation: String,
 }
 
 pub struct Dictionary {
-    map: HashMap<String, DictEntry>,
+    /// 键为小写词，值即词条（不含 word 字段）
+    map: AHashMap<String, DictEntry>,
     /// 中文词索引：从词条翻译文本里提取的 2~3 字全中文片段。
     /// 用于中文正向最大匹配（FMM）分词，O(1) 判定子串是否为有效中文词。
-    chinese_words: std::collections::HashSet<String>,
+    chinese_words: AHashSet<String>,
 }
 
 impl Dictionary {
     pub fn load_from_dir(dir: &Path) -> Self {
-        let mut map: HashMap<String, DictEntry> = HashMap::new();
-        let mut chinese_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut map: AHashMap<String, DictEntry> = AHashMap::new();
+        let mut chinese_words: AHashSet<String> = AHashSet::new();
 
         // 从翻译文本提取中文词片段时使用的分隔符（与 reverse_query 一致）
         let sep: &[char] = &[
@@ -55,16 +60,10 @@ impl Dictionary {
                             };
                             let entry = match val {
                                 Value::String(t) => DictEntry {
-                                    word: key.clone(),
                                     phonetic: String::new(),
                                     translation: t,
                                 },
                                 Value::Object(o) => DictEntry {
-                                    word: o
-                                        .get("w")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or(&key)
-                                        .to_string(),
                                     phonetic: o
                                         .get("p")
                                         .and_then(|v| v.as_str())
@@ -115,9 +114,9 @@ impl Dictionary {
         crate::query::is_word_in_dict(word, self)
     }
 
-    /// 返回全部词条（用于中译英反向查询的全表扫描）
-    pub fn all_entries(&self) -> impl Iterator<Item = &DictEntry> {
-        self.map.values()
+    /// 返回全部 (小写词, 词条)（用于中译英反向查询的全表扫描）
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &DictEntry)> {
+        self.map.iter().map(|(k, v)| (k.as_str(), v))
     }
 
     /// 中文正向最大匹配：判断 `text` 是否是一个已知中文词（在中文词索引里）

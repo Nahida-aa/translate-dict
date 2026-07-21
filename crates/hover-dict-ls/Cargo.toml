@@ -9,6 +9,7 @@ name = "hover-dict-ls"
 path = "src/main.rs"
 
 [dependencies]
+ahash = "0.8"
 clap = "4.5.49"
 arc-swap = "1.7"
 serde = "1.0.228"

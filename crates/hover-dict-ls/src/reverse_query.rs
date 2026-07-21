@@ -52,14 +52,14 @@ pub fn reverse_query(chinese: &str, dict: &Dictionary, max_results: usize) -> Ve
 
     let mut matches: Vec<(i64, String, ReverseResult)> = Vec::new();
 
-    for entry in dict.all_entries() {
+    for (word, entry) in dict.entries() {
         if entry.translation.contains(cleaned) {
             let score = calculate_match_score(&entry.translation, cleaned);
             matches.push((
                 score,
-                entry.word.clone(),
+                word.to_string(),
                 ReverseResult {
-                    word: entry.word.clone(),
+                    word: word.to_string(),
                     translation: entry.translation.clone(),
                     phonetic: entry.phonetic.clone(),
                 },

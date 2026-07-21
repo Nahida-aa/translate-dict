@@ -7,16 +7,16 @@ use crate::dict::DictEntry;
 use crate::reverse_query::ReverseResult;
 
 /// 生成一条词条的 Markdown（对齐 translate-dict 的 convert.ts::genMarkdown）
-/// 单词主链接跳转到默认平台。
-pub fn entry_to_markdown(entry: &DictEntry, settings: &Settings) -> String {
-    let url = settings.platform_url(&entry.word);
+/// 单词主链接跳转到默认平台。word 为展示用单词（取自查询键，即小写词）。
+pub fn entry_to_markdown(word: &str, entry: &DictEntry, settings: &Settings) -> String {
+    let url = settings.platform_url(word);
     let phonetic = if entry.phonetic.is_empty() {
         String::new()
     } else {
         format!(" _/{}/_", entry.phonetic)
     };
     let translation = entry.translation.replace("\\n", "  \n");
-    format!("- [{}]({}) {}:\n{}", entry.word, url, phonetic, translation)
+    format!("- [{}]({}) {}:\n{}", word, url, phonetic, translation)
 }
 
 /// 生成一条中文反查结果（ReverseResult）的 Markdown。

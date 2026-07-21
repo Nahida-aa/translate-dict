@@ -224,7 +224,12 @@ impl LanguageServer for HoverDictServer {
         let mut blocks: Vec<String> = Vec::new();
         for part in &parts {
             if let Some(entry) = dict.lookup(part) {
-                blocks.push(markdown::entry_to_markdown(entry, &settings));
+                // 展示用单词：统一小写（map 键即小写词，不再额外存 word 字段）
+                blocks.push(markdown::entry_to_markdown(
+                    &part.to_lowercase(),
+                    entry,
+                    &settings,
+                ));
             }
         }
         blocks.dedup();

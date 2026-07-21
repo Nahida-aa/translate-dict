@@ -203,7 +203,7 @@ fn e2e_hover_abbreviation_chain() {
     let md = hover(&mut client, "file:///y.rs", "let s = HTTPService;", 0, 13)
         .expect("hover should return a result");
 
-    assert!(md.contains("[HTTP]("), "missing 'HTTP':\n{md}");
+    assert!(md.contains("[http]("), "missing 'http':\n{md}");
     assert!(md.contains("[service]("), "missing 'service':\n{md}");
 }
 
