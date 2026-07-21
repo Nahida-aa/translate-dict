@@ -7,10 +7,14 @@ use std::path::Path;
 fn main() {
     let manifest = env!("CARGO_MANIFEST_DIR"); // crates/hover-dict-ls
                                                // 仓库根 dict/：manifest -> .. (crates) -> .. (hover-dict) -> dict
-    let dict = Path::new(manifest)
-        .join("../../dict")
-        .canonicalize()
-        .expect("built-in dict/ directory not found");
+                                               // 注意：不能用 canonicalize()——Windows 上会生成 "\\?\\D:\\..." UNC 前缀，
+                                               // 而 include_dir! 不认该前缀，会报 "not a directory"。直接拼普通路径。
+    let dict = Path::new(manifest).join("../../dict");
+    assert!(
+        dict.exists(),
+        "built-in dict/ directory not found at {}",
+        dict.display()
+    );
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let generated = format!(
         "pub static EMBEDDED: include_dir::Dir = include_dir::include_dir!({:?});\n",
