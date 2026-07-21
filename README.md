@@ -98,6 +98,13 @@ cargo test -p hover-dict-ls
 cargo test -p hover-dict-ls --test e2e
 ```
 
+## Dictionary
+
+The built-in ~760k-word English dictionary is derived from **[ECDICT](https://github.com/skywind3000/ECDICT)** (skywind3000), fetched from its `ecdict.csv` source and split into per-prefix JSON files (`dict/aa.json` … `dict/zz.json`). Word fields map directly: `w` = word, `p` = phonetic, `t` = translation.
+
+- **Dictionary data license**: ECDICT is released under **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)** (Attribution-NonCommercial). This extension is free and open-source and does not commercialize the dictionary data.
+- **Extension code license**: [MIT](LICENSE) © 2026 Nahida-aa (see below).
+
 ## License
 
 [MIT](LICENSE) © 2026 Nahida-aa
