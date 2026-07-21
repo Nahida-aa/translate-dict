@@ -14,7 +14,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use zed_extension_api::{self as zed, Command, LanguageServerId, Result, Worktree};
+use zed_extension_api::serde_json::{json, Value};
+use zed_extension_api::{
+    self as zed, settings::LspSettings, Command, LanguageServerId, Result, Worktree,
+};
 
 // 发布到 Zed 扩展商店时，在此仓库打 release 并附带
 // hover-dict-ls-<版本>-<target>.zip，供非开发用户下载。
@@ -204,6 +207,71 @@ impl zed::Extension for TranslateDictExtension {
             args: vec![],
             env: worktree.shell_env(),
         })
+    }
+
+    /// 把默认配置与用户在 settings.json 写的 `lsp.hover-dict.initialization_options`
+    /// 合并，作为 LSP `initialize` 的 initializationOptions 传给 LS。
+    fn language_server_initialization_options(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        worktree: &Worktree,
+    ) -> Result<Option<Value>> {
+        let mut options = json!({
+            "hover_dict.chinese_to_english_max_results": 10,
+            "hover_dict.default_translate_platform": "google",
+            "hover_dict.custom_translate_url": "",
+        });
+
+        if let Ok(lsp_settings) = LspSettings::for_worktree(language_server_id.as_ref(), worktree) {
+            if let Some(user_opts) = lsp_settings.initialization_options {
+                merge_json(user_opts, &mut options);
+            }
+        }
+
+        Ok(Some(options))
+    }
+
+    /// 配置热更新通道：LS 声明了 didChangeConfiguration，Zed 改配置后会
+    /// 通过 workspace/configuration 请求这里，返回最新配置。
+    fn language_server_workspace_configuration(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        worktree: &Worktree,
+    ) -> Result<Option<Value>> {
+        let mut options = json!({
+            "hover_dict.chinese_to_english_max_results": 10,
+            "hover_dict.default_translate_platform": "google",
+            "hover_dict.custom_translate_url": "",
+        });
+
+        if let Ok(lsp_settings) = LspSettings::for_worktree(language_server_id.as_ref(), worktree) {
+            if let Some(user_opts) = lsp_settings.initialization_options {
+                merge_json(user_opts, &mut options);
+            }
+        }
+
+        Ok(Some(options))
+    }
+}
+
+/// 深度合并 JSON（对象递归、数组追加、标量覆盖），参考 tsgo 的 merge_json_value_into
+fn merge_json(source: Value, target: &mut Value) {
+    match (source, target) {
+        (Value::Object(src), Value::Object(tgt)) => {
+            for (k, v) in src {
+                if let Some(t) = tgt.get_mut(&k) {
+                    merge_json(v, t);
+                } else {
+                    tgt.insert(k, v);
+                }
+            }
+        }
+        (Value::Array(src), Value::Array(tgt)) => {
+            for v in src {
+                tgt.push(v);
+            }
+        }
+        (src, tgt) => *tgt = src,
     }
 }
 

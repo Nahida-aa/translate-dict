@@ -38,6 +38,11 @@ cargo build --target wasm32-wasip1 --release
 echo "==> 编译 LS 二进制 (--release)"
 cargo build --release -p hover-dict-ls
 
+# 注意：扩展壳 wasm 不能手动 cp 到 extension.wasm——Zed 需要的是
+# component 格式（由 zed: rebuild extensions / install dev extension 自动
+# 从 target/wasm32-wasip1/release/hover_dict.wasm 包装生成）。手动 cp 裸
+# module 会导致 "attempted to parse a wasm module with a component parser" 错误。
+
 echo "==> 安置 LS 二进制到扩展运行时 cwd: $CACHE_DIR"
 mkdir -p "$CACHE_DIR"
 
@@ -52,10 +57,12 @@ cp "target/release/$LS_BIN_NAME" "$CACHE_DIR/$LS_BIN_NAME"
 chmod +x "$CACHE_DIR/$LS_BIN_NAME"
 
 echo "==> 完成。"
-echo "    扩展壳 wasm:    $(pwd)/extension.wasm"
-echo "    LS 二进制(cwd): $CACHE_DIR/$LS_BIN_NAME"
+echo "    扩展壳 wasm(module): target/wasm32-wasip1/release/hover_dict.wasm"
+echo "    LS 二进制(cwd):      $CACHE_DIR/$LS_BIN_NAME"
 echo "    dict 目录(LS 运行时 cwd=仓库根, 自动可访问): $(pwd)/dict"
 echo ""
 echo "    说明："
-echo "    Zed dev 模式会热加载，重跑本脚本覆盖二进制后即生效，"
-echo "    无需手动 zed: install dev extension / rebuild extensions / restart language server。"
+echo "    - 改 LS 逻辑后：重跑本脚本覆盖二进制即生效（Zed 会自动重拉 LS）。"
+echo "    - 改扩展壳(src/lib.rs)后：必须在本脚本完成后，于 Zed 中执行"
+echo "      'zed: rebuild extensions'，让 Zed 把 wasm 重新包装为 component 并加载。"
+echo "      切勿手动 cp 裸 wasm 到 extension.wasm（会导致加载失败）。"

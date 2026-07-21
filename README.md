@@ -11,6 +11,33 @@ Offline hover translation for [Zed](https://zed.dev). Hover over any code identi
   - Select Chinese text and hover → English candidates (reverse query).
 - **Fully local**: works offline. No API calls, no telemetry.
 
+## Configuration
+
+All settings are written under the `lsp.hover-dict.initialization_options` key in your Zed `settings.json` (this is the standard LSP configuration channel for Zed extensions — the extension has no in-UI settings panel):
+
+```jsonc
+// ~/.config/zed/settings.json
+{
+  "lsp": {
+    "hover-dict": {
+      "initialization_options": {
+        "hover_dict.chinese_to_english_max_results": 10, // 1..50
+        "hover_dict.default_translate_platform": "google",
+        "hover_dict.custom_translate_url": ""        // used when platform = "custom"
+      }
+    }
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `hover_dict.chinese_to_english_max_results` | number | `10` | Max candidates returned for Chinese → English reverse query (clamped to 1..50). |
+| `hover_dict.default_translate_platform` | string (enum) | `"google"` | Platform the word link jumps to. One of: `google`, `baidu`, `deepl`, `bing`, `yandex`, `custom`. |
+| `hover_dict.custom_translate_url` | string | `""` | URL template used when `default_translate_platform` is `custom`. Use `{word}` as the placeholder (e.g. `https://fanyi.baidu.com/#en/zh/{word}`). |
+
+> **Enabling / disabling per language**: use Zed's native `languages` setting instead of a built-in allow/deny list — e.g. to disable the hover translation for Markdown, add `"!hover-dict"` to `languages.Markdown.language_servers`. Changes to settings are picked up live (no restart needed).
+
 ## Install
 
 ### From the Zed extension store

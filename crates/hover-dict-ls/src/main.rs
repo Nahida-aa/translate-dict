@@ -5,7 +5,10 @@
 // 词库在 initialize 时一次性加载进内存（dict/ 目录，aa.json~zz.json）。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
+use serde::Deserialize;
 use tokio::sync::OnceCell;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -16,6 +19,61 @@ use dict::Dictionary;
 mod query;
 mod reverse_query;
 mod utils;
+
+/// 翻译平台 URL 模板：{word} 为占位符
+const PLATFORM_URLS: &[(&str, &str)] = &[
+    ("google", "https://translate.google.com/?text={word}"),
+    ("baidu", "https://fanyi.baidu.com/#en/zh/{word}"),
+    ("deepl", "https://www.deepl.com/translator#en/zh/{word}"),
+    ("bing", "https://www.bing.com/translator/?text={word}"),
+    ("yandex", "https://translate.yandex.net/?text={word}"),
+];
+
+/// 用户可配置项（来自 Zed settings.json 的 lsp.hover-dict.initialization_options）
+/// 注意：语言级启用/禁用由 Zed 原生的 `languages.<Lang>.language_servers`
+/// 控制，本扩展不再重复实现黑白名单。
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+struct Settings {
+    /// 中译英最多返回候选数
+    #[serde(rename = "hover_dict.chinese_to_english_max_results")]
+    chinese_to_english_max_results: usize,
+    /// 单词/结果跳转的默认平台：google/baidu/deepl/bing/yandex/custom
+    #[serde(rename = "hover_dict.default_translate_platform")]
+    default_translate_platform: String,
+    /// default_translate_platform=custom 时的 URL 模板，{word} 占位符
+    #[serde(rename = "hover_dict.custom_translate_url")]
+    custom_translate_url: String,
+}
+
+impl Settings {
+    fn max_results(&self) -> usize {
+        if self.chinese_to_english_max_results == 0 {
+            10
+        } else {
+            self.chinese_to_english_max_results.min(50)
+        }
+    }
+
+    fn platform_url(&self, word: &str) -> String {
+        let encoded = urlencode(word);
+        let template: &str = if self.default_translate_platform == "custom"
+            && !self.custom_translate_url.is_empty()
+        {
+            &self.custom_translate_url
+        } else {
+            PLATFORM_URLS
+                .iter()
+                .find(|(name, _)| *name == self.default_translate_platform)
+                .map(|(_, t)| *t)
+                .unwrap_or(PLATFORM_URLS[0].1)
+        };
+        template.replace("{word}", &encoded)
+    }
+}
+
+/// 配置全局单例（initialize 时加载，did_change_configuration 时热更新）
+static SETTINGS: OnceCell<ArcSwap<Settings>> = OnceCell::const_new();
 
 /// 词库全局单例（initialize 时加载）
 static DICT: OnceCell<Dictionary> = OnceCell::const_new();
@@ -63,11 +121,9 @@ fn word_at(text: &str, offset: usize) -> Option<(String, usize, usize)> {
 }
 
 /// 生成一条词条的 Markdown（对齐 translate-dict 的 convert.ts::genMarkdown）
-fn entry_to_markdown(entry: &dict::DictEntry) -> String {
-    let url = format!(
-        "https://translate.google.com?text={}",
-        urlencode(&entry.word)
-    );
+/// 单词主链接跳转到默认平台。
+fn entry_to_markdown(entry: &dict::DictEntry, settings: &Settings) -> String {
+    let url = settings.platform_url(&entry.word);
     let phonetic = if entry.phonetic.is_empty() {
         String::new()
     } else {
@@ -88,13 +144,38 @@ struct HoverDictServer {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for HoverDictServer {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         // 加载词库（只加载一次）
         DICT.get_or_init(|| async {
             let dir = dict_dir();
             Dictionary::load_from_dir(&dir)
         })
         .await;
+
+        // 读取用户配置（来自 Zed settings.json 的 lsp.hover-dict.initialization_options）
+        let raw_opts = params.initialization_options.clone();
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!("[hover-dict] initialization_options = {:?}", raw_opts),
+            )
+            .await;
+        let settings: Settings = raw_opts
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!(
+                    "[hover-dict] parsed platform = {}, max_results = {}",
+                    settings.default_translate_platform,
+                    settings.max_results()
+                ),
+            )
+            .await;
+        SETTINGS
+            .get_or_init(|| async { ArcSwap::from_pointee(settings) })
+            .await;
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
@@ -114,6 +195,14 @@ impl LanguageServer for HoverDictServer {
             .await;
     }
 
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        if let Ok(settings) = serde_json::from_value::<Settings>(params.settings) {
+            if let Some(cell) = SETTINGS.get() {
+                cell.store(Arc::new(settings));
+            }
+        }
+    }
+
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
@@ -131,6 +220,10 @@ impl LanguageServer for HoverDictServer {
             Some(d) => d,
             None => return Ok(None),
         };
+        let settings = SETTINGS
+            .get()
+            .map(|c| c.load_full())
+            .unwrap_or_else(|| Arc::new(Settings::default()));
 
         let text_document = params.text_document_position_params.text_document;
         let position = params.text_document_position_params.position;
@@ -168,14 +261,21 @@ impl LanguageServer for HoverDictServer {
 
         // 中文选中 → 中译英（reverse query）
         if reverse_query::contains_chinese(&word) {
-            let results = reverse_query::reverse_query(&word, dict, 10);
+            let results = reverse_query::reverse_query(&word, dict, settings.max_results());
             if results.is_empty() {
-                return Ok(None);
+                let markdown = format!("中译英 `{}` :  \n本地词库暂无匹配的英文单词。", word);
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: Some(hover_range),
+                }));
             }
             let blocks: Vec<String> = results
                 .iter()
                 .map(|r| {
-                    let url = format!("https://translate.google.com?text={}", urlencode(&r.word));
+                    let url = settings.platform_url(&r.word);
                     let phonetic = if r.phonetic.is_empty() {
                         String::new()
                     } else {
@@ -200,13 +300,20 @@ impl LanguageServer for HoverDictServer {
         let mut blocks: Vec<String> = Vec::new();
         for part in &parts {
             if let Some(entry) = dict.lookup(part) {
-                blocks.push(entry_to_markdown(entry));
+                blocks.push(entry_to_markdown(entry, &settings));
             }
         }
         blocks.dedup();
 
         if blocks.is_empty() {
-            return Ok(None);
+            let markdown = format!("翻译 `{}` :  \n本地词库暂无结果。", word);
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: markdown,
+                }),
+                range: Some(hover_range),
+            }));
         }
 
         let markdown = blocks.join("\n*****\n");
@@ -220,7 +327,7 @@ impl LanguageServer for HoverDictServer {
     }
 }
 
-/// 简易文档存储（按 URI 存各文档的整行文本）
+/// 简易文档存储（按 URI 存各文档的整行文本 + 语言名）
 mod documents {
     use std::collections::HashMap;
     use std::sync::Arc;
