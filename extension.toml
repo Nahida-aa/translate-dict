@@ -4,7 +4,7 @@ description = "Local offline hover translation for code. Splits camelCase / snak
 version = "0.0.1"
 schema_version = 1
 authors = ["Hover Dict contributors"]
-repository = "https://github.com/wakatime/zed-wakatime"
+repository = "https://github.com/Nahida-aa/hover-dict"
 
 [language_servers.hover-dict]
 name = "Hover Dict"

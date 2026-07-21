@@ -2,7 +2,7 @@
 name = "hover-dict-ls"
 version.workspace = true
 edition = "2021"
-repository = "https://github.com/wakatime/zed-wakatime"
+repository = "https://github.com/Nahida-aa/hover-dict"
 
 [[bin]]
 name = "hover-dict-ls"
