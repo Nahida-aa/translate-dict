@@ -1,0 +1,25 @@
+[workspace]
+members = ["crates/hover-dict-ls"]
+
+[workspace.package]
+version = "0.0.1"
+
+[package]
+name = "hover-dict"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[lib]
+name = "hover_dict"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.dist]
+dist = false
