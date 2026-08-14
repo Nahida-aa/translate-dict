@@ -1,36 +1,34 @@
-// 智能拆分标识符（移植自 translate-dict 的 src/utils/format.ts）。
+// Goal: split identifiers like getUserProfile / HTTPService / redblacktree / send_email
+// into English words the dictionary can look up, then query each to return translations.
 //
-// 目标：把 getUserProfile / HTTPService / redblacktree / send_email 这类
-// 标识符拆成词典里能查到的英文单词，再分别查词返回翻译。
+// The algorithm has two layers:
+//   1) split_by_case — splits on separators (- _ space) and case boundaries, handling abbreviation chains;
+//   2) split_compound_word — for each segment does "best compound-word split", preferring complete
+//      dictionary words and picking the best split with a scoring function.
 //
-// 算法分两层：
-//   1) split_by_case  —— 按分隔符(- _ 空格)与大小写边界切，处理缩写链；
-//   2) split_compound_word —— 对每段再做"组合词最佳拆分"，优先保留词典中
-//      存在的完整词，用打分函数挑选最优切分。
-//
-// 全部查询走内存里的 Dictionary（启动时一次性加载），零 IO、零网络。
+// All lookups go through the in-memory Dictionary (loaded once at startup): zero IO, zero network.
 
 use crate::dict::Dictionary;
 
-/// 是否允许出现的单字符片段（a / i 当作合法单词）
+/// Whether a single-char fragment is allowed (a / i count as valid words)
 fn is_allowed_single_character(part: &str) -> bool {
     part.eq_ignore_ascii_case("a") || part.eq_ignore_ascii_case("i")
 }
 
-/// 技术缩写：全大写且长度 >= 2
+/// Technical abbreviation: all-caps and length >= 2
 fn is_technical_abbreviation(part: &str) -> bool {
     !part.is_empty() && part.chars().all(|c| c.is_ascii_uppercase()) && part.len() >= 2
 }
 
-/// 拆分全大写缩写链，如 HTTPService -> HTTP + Service
-/// 移植自 splitUppercaseAbbreviationChain
+/// Split an all-caps abbreviation chain, e.g. HTTPService -> HTTP + Service
+/// Ported from splitUppercaseAbbreviationChain
 fn split_uppercase_abbreviation_chain(word: &str, dict: &Dictionary) -> Vec<String> {
     if dict.contains(word) {
         return vec![word.to_string()];
     }
 
     let n = word.chars().count();
-    // 从后往前尝试在 i 处切一刀，前半段必须在词典里
+    // Try cutting at i from the back; the front segment must be in the dictionary
     for i in (2..n.saturating_sub(1)).rev() {
         let (first, second) = word.split_at(i);
         if !dict.contains(first) {
@@ -48,7 +46,7 @@ fn split_uppercase_abbreviation_chain(word: &str, dict: &Dictionary) -> Vec<Stri
     vec![word.to_string()]
 }
 
-/// 小写组合词最佳拆分（DP + memo，移植自 splitLowercaseCompoundWord）
+/// Best split of a lowercase compound word (DP + memo, ported from splitLowercaseCompoundWord)
 fn split_lowercase_compound_word(word: &str, dict: &Dictionary) -> Vec<String> {
     let lower = word.to_lowercase();
     let n = lower.chars().count();
@@ -58,7 +56,7 @@ fn split_lowercase_compound_word(word: &str, dict: &Dictionary) -> Vec<String> {
         .unwrap_or_else(|| vec![word.to_string()])
 }
 
-/// 从 start（字节偏移，单词全为 ASCII）开始的最佳拆分（parts + score），None 表示无解
+/// Best split starting at `start` (byte offset; the word is all-ASCII) as (parts + score), None if impossible
 fn search_lc(
     start: usize,
     lower: &str,
@@ -82,13 +80,13 @@ fn search_lc(
         if !is_dict_word && !is_single {
             continue;
         }
-        // 若该分支无法覆盖到末尾，尝试下一个切分点（不能用 ? 提前返回，
-        // 否则会漏掉其它可行分支并错误 memo 化 None）
+        // If this branch can't cover the tail, try the next split point (can't early-return
+        // with ?, which would miss other viable branches and wrongly memoize None)
         let Some(rest) = search_lc(end, lower, word, dict, memo) else {
             continue;
         };
 
-        // 候选分数：词越长越优，段数越少越优
+        // Candidate score: longer words are better, fewer segments are better
         let mut score: i64 = 0;
         for p in &rest.0 {
             if p.len() == 1 {
@@ -130,7 +128,7 @@ fn search_lc(
     best
 }
 
-/// 归一化前导 I 缩写：IUserService -> UserService（丢弃 I 前缀）
+/// Normalize a leading I prefix: IUserService -> UserService (drops the I)
 fn normalize_leading_interface_prefix(parts: &[String]) -> Vec<String> {
     if parts.len() < 2 || parts[0] != "I" || !is_technical_abbreviation(&parts[1]) {
         return parts.to_vec();
@@ -140,7 +138,7 @@ fn normalize_leading_interface_prefix(parts: &[String]) -> Vec<String> {
     out
 }
 
-/// 给一组拆分页打分（移植自 scoreSplitParts）
+/// Score a set of split parts (ported from scoreSplitParts)
 fn score_split_parts(parts: &[String], dict: &Dictionary) -> i64 {
     let mut score: i64 = 0;
     score -= parts.len() as i64 * 24;
@@ -205,7 +203,7 @@ fn pick_better_candidate(
     }
 }
 
-/// 组合词最佳拆分（移植自 findBestCompoundSplit）
+/// Best compound-word split (ported from findBestCompoundSplit)
 fn find_best_compound_split(word: &str, dict: &Dictionary) -> Vec<String> {
     if word.len() >= 4 && word.chars().all(|c| c.is_ascii_uppercase()) {
         return split_uppercase_abbreviation_chain(word, dict);
@@ -244,7 +242,7 @@ fn find_best_compound_split(word: &str, dict: &Dictionary) -> Vec<String> {
     normalize_leading_interface_prefix(&best.0)
 }
 
-/// 单段组合词拆分入口（移植自 splitCompoundWord）
+/// Entry point for splitting a single segment compound word (ported from splitCompoundWord)
 fn split_compound_word(word: &str, dict: &Dictionary) -> Vec<String> {
     if dict.contains(&word.to_lowercase()) {
         return vec![word.to_string()];
@@ -252,9 +250,10 @@ fn split_compound_word(word: &str, dict: &Dictionary) -> Vec<String> {
     find_best_compound_split(word, dict)
 }
 
-// 手写匹配 translate-dict 的正则：
+// Hand-written match for translate-dict's regex:
 //   [A-Z]+(?=[A-Z][a-z]|$) | [A-Z][a-z]* | [a-z]+
-// 等价于经典 camelCase 切分：连续大写后若是"大写+小写"则把最后一个大写留给小写段。
+// Equivalent to the classic camelCase split: after consecutive caps, if followed by
+// "cap+lowercase", the last cap stays with the lowercase segment.
 mod regex_match {
     pub struct Match<'a> {
         pub s: &'a str,
@@ -285,7 +284,7 @@ mod regex_match {
                         return Some(Match { s: seg });
                     }
                     if j < n && self.chars[j].is_ascii_lowercase() {
-                        // [A-Z][a-z]*  -> 单个大写后接小写，整体作为一个 token（User）
+                        // [A-Z][a-z]*  -> single cap followed by lowercase, whole thing as one token (User)
                         while j < n && self.chars[j].is_ascii_lowercase() {
                             j += 1;
                         }
@@ -293,7 +292,7 @@ mod regex_match {
                         self.pos = j;
                         return Some(Match { s: seg });
                     }
-                    // 全大写段（可能后续被缩写链再拆）
+                    // All-caps segment (may be further split later as an abbreviation chain)
                     let seg = &self.s[self.pos..j];
                     self.pos = j;
                     return Some(Match { s: seg });
@@ -322,12 +321,12 @@ mod regex_match {
     }
 }
 
-/// ^I[A-Z]{2,}$  ->  I 后跟至少两个大写
+/// ^I[A-Z]{2,}$  -> I followed by at least two caps
 fn regex_is_i_aa(m: &str) -> bool {
     m.len() >= 3 && m.starts_with('I') && m[1..].chars().all(|c| c.is_ascii_uppercase())
 }
 
-/// 顶层按大小写 / 分隔符拆分（移植自 splitByCase）
+/// Top-level split by case / separators (ported from splitByCase)
 fn split_by_case(s: &str, dict: &Dictionary) -> Vec<String> {
     if dict.contains(s) {
         return vec![s.to_string()];
@@ -355,8 +354,8 @@ fn split_by_case(s: &str, dict: &Dictionary) -> Vec<String> {
     result
 }
 
-/// 拆分并查询（移植自 parseAndQuery）
-/// 返回去重后的最终单词列表（已过滤长度 <=1）。
+/// Split and query (ported from parseAndQuery)
+/// Returns the deduplicated final word list (fragments of length <= 1 already filtered).
 pub fn parse_and_query(word: &str, dict: &Dictionary) -> Vec<String> {
     let cleaned: String = word
         .replace('"', "")
@@ -403,7 +402,7 @@ mod tests {
     use crate::dict::Dictionary;
     use std::io::Write;
 
-    /// 在临时目录写一个迷你词库，覆盖常用拆词验证所需的词条
+    /// Write a mini dictionary into a temp dir covering the words needed for common split checks
     fn temp_dict() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let words = [
@@ -424,7 +423,7 @@ mod tests {
             ("parser", "n. 解析器"),
             ("user", "n. 使用者"),
         ];
-        // 按前两字母分片写入
+        // Write, sharded by the first two letters
         let mut buckets: std::collections::BTreeMap<String, String> =
             std::collections::BTreeMap::new();
         for (w, t) in words {
@@ -444,8 +443,8 @@ mod tests {
     #[test]
     fn test_camel_case() {
         let dict = Dictionary::load_from_dir(temp_dict().path());
-        // 拆分保留原始大小写（与 translate-dict 的 parseAndQuery 行为一致）；
-        // 最终 hover 展示时再用词库里的规范词形（小写）渲染。
+        // Splits preserve original casing (consistent with translate-dict's parseAndQuery);
+        // the hover display later uses the canonical (lowercase) form from the dictionary.
         assert_eq!(
             parse_and_query("getUserProfile", &dict),
             vec!["get", "User", "Profile"]
@@ -477,7 +476,7 @@ mod tests {
     #[test]
     fn test_abbreviation_chain() {
         let dict = Dictionary::load_from_dir(temp_dict().path());
-        // HTTPService -> HTTP + Service（拆分词保留原始大小写）
+        // HTTPService -> HTTP + Service (split parts keep original casing)
         let parts = parse_and_query("HTTPService", &dict);
         assert!(parts.contains(&"Service".to_string()));
         assert!(parts.contains(&"http".to_string()) || parts.contains(&"HTTP".to_string()));
@@ -501,7 +500,7 @@ mod tests {
     #[test]
     fn test_dedup_case_insensitive() {
         let dict = Dictionary::load_from_dir(temp_dict().path());
-        // User/user 去重（忽略大小写），保留原始大小写片段
+        // User/user deduplicated (case-insensitive), original-casing fragments kept
         let parts = parse_and_query("Useruser", &dict);
         assert_eq!(parts, vec!["User"]);
     }
@@ -509,7 +508,7 @@ mod tests {
     #[test]
     fn test_short_word_ignored() {
         let dict = Dictionary::load_from_dir(temp_dict().path());
-        // 长度 <=1 的片段被过滤
+        // Fragments of length <= 1 are filtered out
         assert!(parse_and_query("a", &dict).is_empty());
     }
 }

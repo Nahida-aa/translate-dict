@@ -1,17 +1,17 @@
-// hover-dict-ls — 翻译语言服务器
+// translate-dict-lsp — translation language server
 //
-// 用 tower-lsp 实现最小 LSP，监听 textDocument/hover，
-// 从光标处取词 -> 智能拆分 -> 查本地词库 -> 返回 Markdown。
-// 词库在 initialize 时一次性加载进内存（dict/ 目录，aa.json~zz.json）。
+// Uses tower-lsp to implement a minimal LSP that serves textDocument/hover:
+// takes the word at the cursor -> smart splitting -> local dictionary lookup -> Markdown.
+// The dictionary loads fully into memory once at initialize (dict/ dir, aa.json~zz.json).
 //
-// 模块拆分：
-// - config.rs   用户配置（平台 / 候选数 / 自定义 URL）
-// - dict.rs     词库加载 + 中文词索引
-// - word.rs     取词（标识符边界 + 中文 FMM 分词）
-// - markdown.rs 词条 -> Markdown 渲染
-// - query.rs / reverse_query.rs  英文拆分查词 / 中文反查
-// - utils.rs    辅助
-// main.rs 只做编排：全局状态、LSP 生命周期、hover 处理。
+// Module layout:
+// - config.rs        user config (platform / candidate count / custom URL)
+// - dict.rs          dictionary loading + Chinese word index
+// - word.rs          word extraction (identifier boundaries + Chinese FMM segmentation)
+// - markdown.rs      entry -> Markdown rendering
+// - query.rs / reverse_query.rs  English split lookup / Chinese reverse query
+// - utils.rs         helpers
+// main.rs only orchestrates: global state, LSP lifecycle, hover handling.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,41 +32,49 @@ mod reverse_query;
 mod utils;
 mod word;
 
-/// 配置全局单例（initialize 时加载，did_change_configuration 时热更新）
+/// Global config singleton (loaded at initialize, hot-reloaded on did_change_configuration)
 static SETTINGS: OnceCell<ArcSwap<Settings>> = OnceCell::const_new();
 
-/// 词库全局单例（initialize 时加载）
+/// Global dictionary singleton (loaded at initialize)
 static DICT: OnceCell<Dictionary> = OnceCell::const_new();
 
-/// 取词库目录：优先 LS 二进制同级的 dict/，否则当前目录 dict/
+/// Dictionary dir: look for dict/ next to the LS binary
 fn dict_dir() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let candidate = dir.join("dict");
-            if candidate.exists() {
-                return candidate;
-            }
+            return dir.join("dict");
         }
     }
     PathBuf::from("dict")
 }
 
-struct HoverDictServer {
+struct TranslateDictServer {
     client: Client,
 }
 
 #[tower_lsp::async_trait]
-impl LanguageServer for HoverDictServer {
+impl LanguageServer for TranslateDictServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // 加载词库（只加载一次）：优先文件系统 dict/，否则用编译期嵌入词库
+        // Load the dictionary (only once): prefer the filesystem dict/, else the compile-time embedded one
         DICT.get_or_init(|| async { Dictionary::load() }).await;
+        let dict = DICT.get().unwrap();
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!(
+                    "[translate-dict] dict loaded: {} entries from {}",
+                    dict.len(),
+                    crate::dict_dir().display(),
+                ),
+            )
+            .await;
 
-        // 读取用户配置（来自 Zed settings.json 的 lsp.hover-dict.initialization_options）
+        // Read user config (from Zed settings.json's lsp.translate-dict.initialization_options)
         let raw_opts = params.initialization_options.clone();
         self.client
             .log_message(
                 MessageType::INFO,
-                &format!("[hover-dict] initialization_options = {:?}", raw_opts),
+                &format!("[translate-dict] initialization_options = {:?}", raw_opts),
             )
             .await;
         let settings: Settings = raw_opts
@@ -76,7 +84,7 @@ impl LanguageServer for HoverDictServer {
             .log_message(
                 MessageType::INFO,
                 &format!(
-                    "[hover-dict] parsed platform = {}, max_results = {}",
+                    "[translate-dict] parsed platform = {}, max_results = {}",
                     settings.default_translate_platform,
                     settings.max_results()
                 ),
@@ -93,8 +101,8 @@ impl LanguageServer for HoverDictServer {
             }),
             capabilities: ServerCapabilities {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
-                // Full 同步：Zed 在每次编辑后把整篇文档文本发回来，
-                // 这样 DOCUMENTS 缓存始终是最新内容，hover 才能翻译新代码。
+                // Full sync: Zed sends the whole document text after every edit,
+                // so the DOCUMENTS cache always holds the latest content and hover can translate new code.
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
@@ -105,7 +113,7 @@ impl LanguageServer for HoverDictServer {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "hover-dict-ls initialized")
+            .log_message(MessageType::INFO, "translate-dict-lsp initialized")
             .await;
     }
 
@@ -131,14 +139,14 @@ impl LanguageServer for HoverDictServer {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let docs = DOCUMENTS.get_or_init(|| async { DocStore::new() }).await;
-        // Full 同步下 content_changes[0].text 即完整最新文档文本
+        // Under Full sync, content_changes[0].text is the full latest document text
         if let Some(change) = params.content_changes.into_iter().next() {
             docs.update(&params.text_document.uri, &change.text).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        // 文件关闭时丢弃缓存，避免持有已不活跃文档的过期文本
+        // Drop the cache when a file closes to avoid holding stale text for inactive documents
         if let Some(docs) = DOCUMENTS.get() {
             docs.remove(&params.text_document.uri).await;
         }
@@ -157,7 +165,7 @@ impl LanguageServer for HoverDictServer {
         let text_document = params.text_document_position_params.text_document;
         let position = params.text_document_position_params.position;
 
-        // 从 did_open / did_change 维护的文档里取当前行文本
+        // Get the current line's text from the document maintained by did_open / did_change
         let docs = DOCUMENTS.get_or_init(|| async { DocStore::new() }).await;
         let line_text = docs
             .get_line(&text_document.uri, position.line as usize)
@@ -167,7 +175,7 @@ impl LanguageServer for HoverDictServer {
             return Ok(None);
         };
 
-        // 计算字符偏移（LSP 用 UTF-16 列，英文标识符场景下等于字符序）
+        // Character offset (LSP uses UTF-16 columns, which equal character indexes for ASCII identifiers)
         let offset = position.character as usize;
         let Some((word, start, end)) = word::word_at(&line_text, offset, dict) else {
             return Ok(None);
@@ -176,7 +184,8 @@ impl LanguageServer for HoverDictServer {
             return Ok(None);
         }
 
-        // 被悬停词的字符范围：Zed 靠它判断"鼠标移到另一个词时旧 hover 失效并刷新"
+        // Hovered word's character range: Zed uses it to invalidate the old hover
+        // and refresh when the mouse moves to another word
         let hover_range = Range {
             start: Position {
                 line: position.line,
@@ -188,7 +197,7 @@ impl LanguageServer for HoverDictServer {
             },
         };
 
-        // 中文选中 → 中译英（reverse query）
+        // Chinese selection -> Chinese-to-English (reverse query)
         if reverse_query::contains_chinese(&word) {
             let results = reverse_query::reverse_query(&word, dict, settings.max_results());
             if results.is_empty() {
@@ -215,12 +224,12 @@ impl LanguageServer for HoverDictServer {
             }));
         }
 
-        // 英文标识符 → 智能拆分 + 查词
+        // English identifier -> smart split + dictionary lookup
         let parts = utils::format::parse_and_query(&word, dict);
         let mut blocks: Vec<String> = Vec::new();
         for part in &parts {
             if let Some(entry) = dict.lookup(part) {
-                // 展示用单词：统一小写（map 键即小写词，不再额外存 word 字段）
+                // Display word: lowercased (map keys are lowercase words, no extra word field stored)
                 blocks.push(markdown::entry_to_markdown(
                     &part.to_lowercase(),
                     entry,
@@ -252,7 +261,7 @@ impl LanguageServer for HoverDictServer {
     }
 }
 
-/// 简易文档存储（按 URI 存各文档的整行文本 + 语言名）
+/// Minimal document store (per-URI whole-line texts + language name) for the hover request path
 mod documents {
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -270,14 +279,14 @@ mod documents {
             Self::default()
         }
 
-        /// 文件首次打开：缓存整行文本。
+        /// First open of a file: cache the whole-line texts.
         pub async fn open(&self, doc: &TextDocumentItem) {
             let lines: Vec<String> = doc.text.split('\n').map(|s| s.to_string()).collect();
             self.inner.write().await.insert(doc.uri.clone(), lines);
         }
 
-        /// 文件内容变化：用最新全文刷新缓存。
-        /// 必须处理，否则编辑后缓存的是旧文本，hover 会翻译旧位置的旧词。
+        /// Content changed: refresh the cache with the full latest text.
+        /// Required, otherwise hover would translate stale text at stale positions.
         pub async fn update(&self, uri: &Url, text: &str) {
             let lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
             self.inner.write().await.insert(uri.clone(), lines);
@@ -291,7 +300,7 @@ mod documents {
                 .and_then(|l| l.get(line).cloned())
         }
 
-        /// 文件关闭：移除缓存，避免持有过期文本占用内存
+        /// File closed: remove the cache so it doesn't keep holding stale text in memory
         pub async fn remove(&self, uri: &Url) {
             self.inner.write().await.remove(uri);
         }
@@ -306,6 +315,6 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| HoverDictServer { client });
+    let (service, socket) = LspService::new(|client| TranslateDictServer { client });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

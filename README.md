@@ -1,4 +1,4 @@
-# Hover Dict
+# Translate Dict
 
 Offline hover translation for [Zed](https://zed.dev). Hover over any code identifier and get its meaning in Chinese — no network required.
 
@@ -13,17 +13,17 @@ Offline hover translation for [Zed](https://zed.dev). Hover over any code identi
 
 ## Configuration
 
-All settings are written under the `lsp.hover-dict.initialization_options` key in your Zed `settings.json` (this is the standard LSP configuration channel for Zed extensions — the extension has no in-UI settings panel):
+All settings are written under the `lsp.translate-dict-lsp.initialization_options` key in your Zed `settings.json` (this is the standard LSP configuration channel for Zed extensions — the extension has no in-UI settings panel):
 
 ```jsonc
 // ~/.config/zed/settings.json
 {
   "lsp": {
-    "hover-dict": {
+    "translate-dict-lsp": {
       "initialization_options": {
-        "hover_dict.chinese_to_english_max_results": 10, // 1..50
-        "hover_dict.default_translate_platform": "google",
-        "hover_dict.custom_translate_url": ""        // used when platform = "custom"
+        "translate_dict_lsp.chinese_to_english_max_results": 10, // 1..50
+        "translate_dict_lsp.default_translate_platform": "google",
+        "translate_dict_lsp.custom_translate_url": ""        // used when platform = "custom"
       }
     }
   }
@@ -32,21 +32,21 @@ All settings are written under the `lsp.hover-dict.initialization_options` key i
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `hover_dict.chinese_to_english_max_results` | number | `10` | Max candidates returned for Chinese → English reverse query (clamped to 1..50). |
-| `hover_dict.default_translate_platform` | string (enum) | `"google"` | Platform the word link jumps to. One of: `google`, `baidu`, `deepl`, `bing`, `yandex`, `custom`. |
-| `hover_dict.custom_translate_url` | string | `""` | URL template used when `default_translate_platform` is `custom`. Use `{word}` as the placeholder (e.g. `https://fanyi.baidu.com/#en/zh/{word}`). |
+| `translate_dict_lsp.chinese_to_english_max_results` | number | `10` | Max candidates returned for Chinese → English reverse query (clamped to 1..50). |
+| `translate_dict_lsp.default_translate_platform` | string (enum) | `"google"` | Platform the word link jumps to. One of: `google`, `baidu`, `deepl`, `bing`, `yandex`, `custom`. |
+| `translate_dict_lsp.custom_translate_url` | string | `""` | URL template used when `default_translate_platform` is `custom`. Use `{word}` as the placeholder (e.g. `https://fanyi.baidu.com/#en/zh/{word}`). |
 
-> **Enabling / disabling per language**: use Zed's native `languages` setting instead of a built-in allow/deny list — e.g. to disable the hover translation for Markdown, add `"!hover-dict"` to `languages.Markdown.language_servers`. Changes to settings are picked up live (no restart needed).
+> **Enabling / disabling per language**: use Zed's native `languages` setting instead of a built-in allow/deny list — e.g. to disable the hover translation for Markdown, add `"!translate-dict-lsp"` to `languages.Markdown.language_servers`. Changes to settings are picked up live (no restart needed).
 
 ## Install
 
 ### From the Zed extension store
 
-Search for **Hover Dict** in Zed's extension panel and install. On first run the extension downloads the matching language-server binary for your platform from the GitHub release. **The ~760k-word dictionary is bundled inside the binary** — no extra download or setup needed, and it works fully offline.
+Search for **Translate Dict** in Zed's extension panel and install. On first run the extension downloads the matching language-server binary for your platform from the GitHub release. **The ~760k-word dictionary is bundled inside the binary** — no extra download or setup needed, and it works fully offline.
 
 ### From GitHub release (manual)
 
-Download the `hover-dict-ls-<version>-<your-platform>.zip` asset from the latest GitHub release, extract `hover-dict-ls`, and point the extension at it via the `HOVER_DICT_LS_BIN` environment variable (absolute path). Useful if you don't use the Zed extension store.
+Download the `translate-dict-lsp-<version>-<your-platform>.zip` asset from the latest GitHub release and extract `translate-dict-lsp`. Useful if you don't use the Zed extension store.
 
 ### Dev install (local development)
 
@@ -63,17 +63,17 @@ Download the `hover-dict-ls-<version>-<your-platform>.zip` asset from the latest
 After changing code, re-run `zed: install dev extension` to reload. To rebuild the language-server binary locally:
 
 ```sh
-cargo build --release -p hover-dict-ls
+cargo build --release -p translate-dict-lsp
 ```
 
-The extension shell prefers a locally built LS binary (`target/release/hover-dict-ls` or the `HOVER_DICT_LS_BIN` env var) before falling back to the downloaded release binary.
+The extension shell prefers a locally built LS binary (`target/release/translate-dict-lsp` or the binary placed by `scripts/dev-install.sh`) before falling back to the downloaded release binary.
 
 ## Project layout
 
 ```
 extension.toml          # Zed extension manifest
 src/lib.rs              # WASM extension shell (downloads / locates the LS binary)
-crates/hover-dict-ls/   # The language server (tower-lsp)
+crates/translate-dict-lsp/   # The language server (tower-lsp)
   src/dict.rs           # Dictionary loading & lookup
   src/query.rs          # Word variant generation & dict query
   src/reverse_query.rs  # Chinese -> English reverse query
@@ -89,13 +89,13 @@ dict/                   # 674 built-in dictionary JSON files (aa.json .. zz.json
 cargo build --target wasm32-wasip1 --release
 
 # Build the language server
-cargo build --release -p hover-dict-ls
+cargo build --release -p translate-dict-lsp
 
 # Run unit tests
-cargo test -p hover-dict-ls
+cargo test -p translate-dict-lsp
 
 # Run end-to-end tests (spawns the real LS binary over JSON-RPC)
-cargo test -p hover-dict-ls --test e2e
+cargo test -p translate-dict-lsp --test e2e
 ```
 
 ## Dictionary

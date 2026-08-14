@@ -1,15 +1,14 @@
-id = "hover-dict"
-name = "Hover Dict"
+id = "translate-dict-lsp"
+name = "Translate Dict"
 description = "Local offline hover translation for code. Splits camelCase / snake_case / kebab-case identifiers, looks up a 760k-word built-in dictionary, and shows the meaning on hover. English to Chinese on hover; Chinese to English when selecting Chinese text. No network required."
 version = "0.1.0"
 schema_version = 1
 authors = ["Nahida-aa"]
-repository = "https://github.com/Nahida-aa/hover-dict"
+repository = "https://github.com/Nahida-aa/translate-dict"
 license = "MIT"
 
-[language_servers.hover-dict]
-name = "Hover Dict"
-# 全语言清单：Zed 没有 "*" 通配，必须逐一列举（覆盖策略参考 wakatime）
+[language_servers.translate-dict-lsp]
+name = "Translate Dict"
 languages = [
     "ActionScript", "Ada", "Agda", "Aiken", "Amber", "Ansible", "AsciiDoc",
     "Assembly", "Astro", "AWK", "Shell Script", "Beancount", "Bend", "bitbake",

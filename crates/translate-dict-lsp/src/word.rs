@@ -1,32 +1,34 @@
-// 取词层：从一行文本里按光标偏移取出"单词"（标识符 / 中文词）。
+// Word extraction: take the "word" (identifier / Chinese word) under the cursor from a text line.
 //
-// - 英文标识符的拆分（camelCase / snake_case / 缩写链 / 组合词）在
-//   utils::format::parse_and_query 里处理，本模块只负责"光标处是哪一段"。
-// - 中文段用正向最大匹配（FMM）分词，只返回光标所在的那一个中文词，
-//   使 hover 的 range 高亮与内容一致，且中文段内移动鼠标可自动刷新。
+// - Splitting English identifiers (camelCase / snake_case / abbreviation chains / compound
+//   words) is handled in utils::format::parse_and_query; this module only finds which
+//   segment the cursor is on.
+// - Chinese segments use forward-maximum-matching (FMM) segmentation, returning only the
+//   one word under the cursor so the hover range highlight matches the content, and moving
+//   the mouse within the Chinese segment refresh automatically.
 
 use crate::dict::Dictionary;
 
-/// 判断字符是否属于"单词"边界（英文/数字/下划线 + 中日韩汉字）
+/// Whether a char is a "word" boundary char (ASCII alphanumeric/underscore + CJK hanzi)
 fn is_word_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c.is_alphanumeric() && !c.is_ascii()
 }
 
-/// 判断字符是否为中文（CJK 统一表意文字），用于区分中英边界
+/// Whether a char is Chinese (CJK unified ideograph), used to separate Chinese/English boundaries
 fn is_chinese_char(c: char) -> bool {
     c.is_alphanumeric() && !c.is_ascii()
 }
 
-/// 中文正向最大匹配（FMM）分词：把一段连续中文切成已知中文词。
-/// 返回每个词 (词, 起始偏移, 结束偏移)，偏移相对整行 text。
-/// 词典里没有的词按单字切分。
+/// Chinese forward-maximum-matching (FMM) segmentation: slice a run of Chinese into known Chinese words.
+/// Returns each word (word, start offset, end offset); offsets are relative to the whole line.
+/// Unknown words are split into single chars.
 fn segment_chinese(s: &str, start: usize, dict: &Dictionary) -> Vec<(String, usize, usize)> {
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
     let mut out = Vec::new();
     let mut i = 0;
     while i < n {
-        // 从最长(3字)向最短(2字)尝试匹配已知中文词
+        // Try to match a known Chinese word from longest (3 chars) down to shortest (2 chars)
         let mut matched = 1;
         for len in (2..=3.min(n - i)).rev() {
             let sub: String = chars[i..i + len].iter().collect();
@@ -42,15 +44,16 @@ fn segment_chinese(s: &str, start: usize, dict: &Dictionary) -> Vec<(String, usi
     out
 }
 
-/// 从一行文本里，根据字符偏移取光标处的"单词"（按标识符边界）。
-/// 返回 (单词, 起始字符偏移, 结束字符偏移)。
-/// offset / start / end 均以字符计（LSP 对 ASCII 标识符 position.character 即字符序）。
-/// 返回的 start/end 用于在 hover 响应里带上 Range，使 Zed 能在鼠标移到
-/// 另一个词时自动判定旧 hover 失效并刷新（否则 range 为 None 时 Zed 不更新）。
+/// Take the "word" under the cursor (by identifier boundaries) from a text line.
+/// Returns (word, start char offset, end char offset).
+/// offset / start / end are in chars (for ASCII identifiers, LSP position.character equals the char index).
+/// The returned start/end are attached to the hover response as Range so Zed can detect the old
+/// hover is stale and refresh when the mouse moves to another word (without a range, Zed won't update).
 ///
-/// 关键：中英文混排时各自为政（不跨语言边界捞词）；中文段用 FMM 分词后
-/// 只返回"光标所在的那一个中文词"，使 hover range 高亮与内容一致，且
-/// 鼠标在中文段内移动到另一个词时 range 变化、自动刷新。
+/// Key point: Chinese and English each operate independently (no cross-language boundary picking);
+/// Chinese segments go through FMM, returning only the one word under the cursor so the hover
+/// range highlight matches the content, and moving within a Chinese segment changes the range and
+/// triggers an automatic refresh.
 pub fn word_at(text: &str, offset: usize, dict: &Dictionary) -> Option<(String, usize, usize)> {
     let chars: Vec<char> = text.chars().collect();
     if offset > chars.len() {
@@ -72,11 +75,11 @@ pub fn word_at(text: &str, offset: usize, dict: &Dictionary) -> Option<(String, 
 
     let raw: String = chars[start..end].iter().collect();
 
-    // 中文：FMM 分词后返回光标所在的那一个词（而非整段）
+    // Chinese: FMM, then return the single word under the cursor (not the whole segment)
     if cursor_is_chinese {
         let segments = segment_chinese(&raw, start, dict);
-        // 仅当分词切出了至少一个多字词时，才采用分词结果；
-        // 否则（词典里没有任何中文词）退回整段，保持原行为。
+        // Only adopt the segmented result if it produced at least one multi-char word;
+        // otherwise (no known Chinese words) fall back to the whole segment, preserving prior behavior.
         let has_multi = segments.iter().any(|(w, _, _)| w.chars().count() >= 2);
         if has_multi {
             for (word, s, e) in segments {
@@ -96,7 +99,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// 构造一个空词典（英文测试不需要中文分词）
+    /// Build an empty dictionary (English tests don't need Chinese segmentation)
     fn empty_dict() -> Dictionary {
         let dir = tempfile::tempdir().unwrap();
         Dictionary::load_from_dir(dir.path())
@@ -124,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_word_at_with_cjk_fallback() {
-        // 空词典下没有中文词，光标在中文段返回整段（兜底）
+        // Without Chinese words in the empty dict, the cursor returns the whole Chinese segment (fallback)
         let text = "项目";
         let dict = empty_dict();
         assert_eq!(word_at(text, 1, &dict), Some(("项目".to_string(), 0, 2)));
@@ -132,7 +135,8 @@ mod tests {
 
     #[test]
     fn test_word_at_cjk_segment() {
-        // 词典含"必须""逐一""列举"，光标在"必"上应只返回"必须"
+        // The dict contains all three words in the test text below; a cursor on the
+        // first char should return only that first word
         let dir = tempfile::tempdir().unwrap();
         let mut f = std::fs::File::create(dir.path().join("bi.json")).unwrap();
         writeln!(
@@ -143,9 +147,9 @@ mod tests {
         drop(f);
         let dict = Dictionary::load_from_dir(dir.path());
         let text = "必须逐一列举";
-        // cursor 在 "必"(offset 0) → 返回第一个词"必须" [0,2)
+        // cursor on the first char (offset 0) -> returns the first word [0,2)
         assert_eq!(word_at(text, 0, &dict), Some(("必须".to_string(), 0, 2)));
-        // cursor 在 "逐"(offset 2) → 返回"逐一" [2,4)
+        // cursor on the third char (offset 2) -> returns the second word [2,4)
         assert_eq!(word_at(text, 2, &dict), Some(("逐一".to_string(), 2, 4)));
     }
 }

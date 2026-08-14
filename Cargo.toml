@@ -1,17 +1,17 @@
 [workspace]
-members = ["crates/hover-dict-ls"]
+members = ["crates/translate-dict-lsp"]
 
 [workspace.package]
 version = "0.1.0"
 
 [package]
-name = "hover-dict"
+name = "translate-dict"
 version.workspace = true
 edition = "2021"
 publish = false
 
 [lib]
-name = "hover_dict"
+name = "translate_dict"
 crate-type = ["cdylib"]
 
 [dependencies]

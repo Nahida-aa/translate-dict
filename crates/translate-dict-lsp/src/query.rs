@@ -1,23 +1,15 @@
-// 单词查询（移植自 translate-dict 的 src/query.ts）。
-//
-// 参考项目里 query.ts 负责「单个词的变体生成 + 在词典里查找」，分为：
-//   - getWordVariants：生成原文/小写/首字母大写/缩写加点/全大写 等变体
-//   - loadDict：按前两字母懒加载分片（我们改为启动全量预加载，故省略）
-//   - findInDict / queryDict / isWordInDict：查词
-//
-// 这里保留 变体生成 + 查词 的核心，词典数据来自 dict.rs 的 Dictionary。
+// This keeps the variant-generation + lookup core; dictionary data comes from dict.rs's Dictionary.
 
 use crate::dict::{DictEntry, Dictionary};
 
-/// 生成单词的各种大小写变体，按优先级排序：
-/// 原文 → 小写 → 首字母大写 → 首字母大写加点(缩写形式) → 全大写
-/// 移植自 query.ts::getWordVariants
+/// Generate case variants of a word, ordered by priority:
+/// original -> lowercase -> capitalized -> capitalized-with-dot (abbreviation) -> all-caps
 pub fn get_word_variants(word: &str) -> Vec<String> {
     let mut variants: Vec<String> = vec![word.to_string()];
     let lower_word = word.to_lowercase();
     let upper_word = word.to_uppercase();
     let capitalized_word = format!("{}{}", lower_word[..1].to_uppercase(), &lower_word[1..]);
-    // 首字母大写加点（缩写形式），如 Ht -> Ht.
+    // Capitalized with a dot (abbreviated form), e.g. Ht -> Ht.
     let capitalized_with_dot = format!("{capitalized_word}.");
 
     if lower_word != word {
@@ -34,7 +26,6 @@ pub fn get_word_variants(word: &str) -> Vec<String> {
     variants
 }
 
-/// 查询单词的词典结果（移植自 query.ts::queryDict）
 pub fn query_dict<'a>(word: &str, dict: &'a Dictionary) -> Option<&'a DictEntry> {
     if word.len() < 2 {
         return None;
@@ -48,7 +39,6 @@ pub fn query_dict<'a>(word: &str, dict: &'a Dictionary) -> Option<&'a DictEntry>
     None
 }
 
-/// 判断单词是否在词典中存在（移植自 query.ts::isWordInDict）
 pub fn is_word_in_dict(word: &str, dict: &Dictionary) -> bool {
     query_dict(word, dict).is_some()
 }
@@ -77,7 +67,7 @@ mod tests {
     #[test]
     fn test_get_word_variants() {
         let v = get_word_variants("User");
-        // 原文、小写、首字母大写、首字母大写加点、全大写
+        // original, lowercase, capitalized, capitalized-with-dot, all-caps
         assert!(v.contains(&"User".to_string()));
         assert!(v.contains(&"user".to_string()));
         assert!(v.contains(&"User.".to_string()));

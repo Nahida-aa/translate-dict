@@ -1,15 +1,16 @@
-//! 端到端测试（e2e）：启动编译好的 hover-dict-ls 二进制，通过 stdio 走真实
-//! LSP JSON-RPC 协议（initialize / initialized / didOpen / hover），断言 hover
-//! 返回符合预期的翻译 Markdown。
+//! End-to-end tests (e2e): launch the compiled translate-dict-lsp binary and talk to it over
+//! stdio with the real LSP JSON-RPC protocol (initialize / initialized / didOpen / hover),
+//! asserting that hover returns the expected translation Markdown.
 //!
-//! 与单元测试的区别：这里不 mock 任何逻辑，直接跑真实二进制 + 真实词库，
-//! 验证「标识符 -> 拆分 -> 查词 -> Markdown」整条链路在进程边界外仍然正确。
+//! Difference from unit tests: nothing is mocked here; the real binary + real dictionary run,
+//! verifying the whole "identifier -> split -> lookup -> Markdown" chain is still correct
+//! across the process boundary.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 
-/// 带 Content-Length 帧的 JSON-RPC 连接
+/// JSON-RPC connection framed with Content-Length
 struct LspClient {
     child: Child,
     stdin: ChildStdin,
@@ -19,9 +20,9 @@ struct LspClient {
 
 impl LspClient {
     fn start() -> Self {
-        // CARGO_BIN_EXE_<name> 由 cargo 在集成测试时注入，指向编译好的二进制
-        let exe = env!("CARGO_BIN_EXE_hover-dict-ls");
-        // 仓库根（dict/ 在此），MANIFEST_DIR = crates/hover-dict-ls
+        // CARGO_BIN_EXE_<name> is injected by cargo for integration tests, pointing at the built binary
+        let exe = env!("CARGO_BIN_EXE_translate-dict-lsp");
+        // Repo root (dict/ lives here); MANIFEST_DIR = crates/translate-dict-lsp
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
@@ -34,7 +35,7 @@ impl LspClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("failed to spawn hover-dict-ls");
+            .expect("failed to spawn translate-dict-lsp");
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -55,7 +56,7 @@ impl LspClient {
         self.stdin.flush().unwrap();
     }
 
-    /// 读取下一条 JSON-RPC 消息（可能是响应，也可能是通知）
+    /// Read the next JSON-RPC message (either a response or a notification)
     fn read_message(&self) -> serde_json::Value {
         let mut reader = self.reader.lock().unwrap();
         let mut header = String::new();
@@ -68,7 +69,7 @@ impl LspClient {
             }
             let line = header.trim_end();
             if line.is_empty() {
-                break; // 头部结束
+                break; // header end
             }
             if let Some(val) = line.strip_prefix("Content-Length:") {
                 content_length = Some(val.trim().parse().unwrap());
@@ -80,7 +81,7 @@ impl LspClient {
         serde_json::from_slice(&buf).unwrap()
     }
 
-    /// 发送请求并等待对应 id 的响应
+    /// Send a request and wait for the response with the matching id
     fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
         let id = self.next_id;
         self.next_id += 1;
@@ -95,7 +96,7 @@ impl LspClient {
             if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
                 return msg;
             }
-            // 忽略通知（如 window/logMessage）
+            // Ignore notifications (e.g. window/logMessage)
         }
     }
 
@@ -107,7 +108,7 @@ impl LspClient {
         }));
     }
 
-    /// 模拟文件内容变化（Full 同步：传完整最新文本）
+    /// Simulate file content change (Full sync: send the complete latest text)
     fn did_change(&mut self, uri: &str, version: i32, text: &str) {
         self.notify(
             "textDocument/didChange",
@@ -128,7 +129,7 @@ impl Drop for LspClient {
 
 fn initialize(client: &mut LspClient) -> serde_json::Value {
     let resp = client.request("initialize", serde_json::json!({ "capabilities": {} }));
-    // 声明了 hover 能力
+    // Declares the hover capability
     assert_eq!(
         resp["result"]["capabilities"]["hoverProvider"],
         serde_json::json!(true)
@@ -137,7 +138,7 @@ fn initialize(client: &mut LspClient) -> serde_json::Value {
     resp
 }
 
-/// 打开一个文档并发 hover 请求，返回 hover 的 Markdown 文本（若无结果返回 None）
+/// Open a document and send a hover request, returning the hover Markdown text (None if no result)
 fn hover(
     client: &mut LspClient,
     uri: &str,
@@ -174,7 +175,7 @@ fn hover(
 fn e2e_hover_camel_case() {
     let mut client = LspClient::start();
     initialize(&mut client);
-    // 给 initialize 后的词库加载留一点时间
+    // Give the dictionary a moment to load after initialize
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     let md = hover(
@@ -186,11 +187,11 @@ fn e2e_hover_camel_case() {
     )
     .expect("hover should return a result");
 
-    // 拆分结果应包含 get / user / profile 三个词块的标题
+    // The split result should contain titles for the get / user / profile word blocks
     assert!(md.contains("[get]("), "missing 'get':\n{md}");
     assert!(md.contains("[user]("), "missing 'user':\n{md}");
     assert!(md.contains("[profile]("), "missing 'profile':\n{md}");
-    // 词块之间用分隔线隔开
+    // Word blocks are separated by divider lines
     assert!(md.contains("*****"), "missing separator:\n{md}");
 }
 
@@ -230,14 +231,14 @@ fn e2e_hover_chinese_reverse() {
     let md = hover(&mut client, "file:///c.rs", "项目", 0, 1)
         .expect("hover should return a result for Chinese");
 
-    // 中译英：应列出英文候选（如 item / project）
+    // Chinese-to-English: should list English candidates (e.g. item / project)
     assert!(
         md.contains("中译英") && (md.contains("[item](") || md.contains("[project](")),
         "unexpected chinese reverse result:\n{md}"
     );
 }
 
-/// 回归测试：文件编辑后缓存必须刷新，否则 hover 会翻译旧位置的旧词。
+/// Regression test: after editing, the cache must refresh, otherwise hover would translate stale text at stale positions.
 #[test]
 fn e2e_hover_after_edit_reflects_new_text() {
     let mut client = LspClient::start();
@@ -245,7 +246,7 @@ fn e2e_hover_after_edit_reflects_new_text() {
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     let uri = "file:///edit.rs";
-    // 先打开：第 0 行是 "let a = redblacktree;"（line 0）
+    // Open first: line 0 is "let a = redblacktree;" (line 0)
     client.notify(
         "textDocument/didOpen",
         serde_json::json!({
@@ -257,7 +258,7 @@ fn e2e_hover_after_edit_reflects_new_text() {
             }
         }),
     );
-    // hover 第 1 行 "userProfile" 在 (12, 22)
+    // Hover line 1 "userProfile" at (12, 22)
     let before = client.request(
         "textDocument/hover",
         serde_json::json!({
@@ -275,10 +276,10 @@ fn e2e_hover_after_edit_reflects_new_text() {
         "precondition: expect 'user' in old text"
     );
 
-    // 编辑第 1 行：把 userProfile 换成 getUserProfile（更多分词）
+    // Edit line 1: replace userProfile with getUserProfile (more splits)
     client.did_change(uri, 2, "let a = redblacktree;\nlet b = getUserProfile;");
 
-    // 现在 hover 同一位置应反映新文本（含 get / user / profile）
+    // Now hovering the same position should reflect the new text (get / user / profile)
     let after = client.request(
         "textDocument/hover",
         serde_json::json!({

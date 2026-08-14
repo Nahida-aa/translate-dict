@@ -1,13 +1,12 @@
-// Markdown 渲染：把词典词条渲染成 hover 展示的 Markdown 文本。
+// Markdown rendering: render dictionary entries as the Markdown shown in hover.
 //
-// 单词主链接跳转到配置的平台（见 config::Settings::platform_url）。
+// The word's main link jumps to the configured platform (see config::Settings::platform_url).
 
 use crate::config::Settings;
 use crate::dict::DictEntry;
 use crate::reverse_query::ReverseResult;
 
-/// 生成一条词条的 Markdown（对齐 translate-dict 的 convert.ts::genMarkdown）
-/// 单词主链接跳转到默认平台。word 为展示用单词（取自查询键，即小写词）。
+/// The word's main link jumps to the default platform. word is the display word (from the query key, i.e. lowercased).
 pub fn entry_to_markdown(word: &str, entry: &DictEntry, settings: &Settings) -> String {
     let url = settings.platform_url(word);
     let phonetic = if entry.phonetic.is_empty() {
@@ -19,9 +18,9 @@ pub fn entry_to_markdown(word: &str, entry: &DictEntry, settings: &Settings) -> 
     format!("- [{}]({}) {}:\n{}", word, url, phonetic, translation)
 }
 
-/// 生成一条中文反查结果（ReverseResult）的 Markdown。
-/// ReverseResult 与 DictEntry 字段相同（word/translation/phonetic），
-/// 仅多路复用同一套渲染逻辑。
+/// Generate the Markdown for one Chinese reverse-query result (ReverseResult).
+/// ReverseResult has the same fields as DictEntry (word/translation/phonetic),
+/// so the same rendering logic is reused.
 pub fn reverse_result_to_markdown(r: &ReverseResult, settings: &Settings) -> String {
     let url = settings.platform_url(&r.word);
     let phonetic = if r.phonetic.is_empty() {

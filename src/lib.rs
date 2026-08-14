@@ -1,13 +1,13 @@
-//! hover-dict — Zed 扩展壳
+//! translate-dict — Zed extension shell
 //!
-//! 本扩展只负责一件事：告诉 Zed 我们的翻译语言服务器
-//! (`hover-dict-ls`) 二进制在哪里、如何启动。
-//! 真正的 LSP hover 逻辑全部在 `hover-dict-ls` 这个独立 Rust
-//! 二进制里实现（见 crates/hover-dict-ls）。
+//! This extension does one thing: tell Zed where our translation language
+//! server (`translate-dict-lsp`) binary lives and how to launch it.
+//! All the actual LSP hover logic lives in the standalone Rust binary
+//! `translate-dict-lsp` (see crates/translate-dict-lsp).
 //!
-//! 设计参照 wakatime/zed-wakatime：扩展壳以 WASM 编译，仅做
-//! `language_server_command` 适配；LS 逻辑放在外部二进制，首次从
-//! GitHub release 下载并缓存路径。
+//! Modeled after wakatime/zed-wakatime: the extension shell compiles to WASM
+//! and only adapts `language_server_command`; the LS logic lives in an external
+//! binary that is first downloaded from a GitHub release and cached.
 
 use std::{
     fs,
@@ -19,11 +19,11 @@ use zed_extension_api::{
     self as zed, settings::LspSettings, Command, LanguageServerId, Result, Worktree,
 };
 
-// 发布到 Zed 扩展商店时，在此仓库打 release 并附带
-// hover-dict-ls-<版本>-<target>.zip，供非开发用户下载。
-// 开发期（自用）完全不需要 GitHub：本地已编译的二进制会被优先使用，
-// 因此不受 GitHub 匿名 API 限流影响。
-const LS_REPO: &str = "Nahida-aa/hover-dict";
+// When publishing to the Zed extension store, cut a release in this repo and
+// attach translate-dict-lsp-<version>-<target>.zip for non-developers.
+// During development (personal use) GitHub is not needed at all: a local
+// binary is preferred, avoiding GitHub anonymous API rate limits.
+const LS_REPO: &str = "Nahida-aa/translate-dict";
 
 struct TranslateDictExtension {
     cached_ls_binary_path: Option<PathBuf>,
@@ -36,8 +36,8 @@ fn executable_name(binary: &str) -> String {
     }
 }
 
-/// 根据当前平台拼出 GitHub release 的 asset 名（target triple）。
-/// 仅发布期（从 GitHub 下载）使用；开发期不依赖。
+/// Build the GitHub release asset name (target triple) for the current platform.
+/// Only used at release time (downloading from GitHub); not needed during development.
 #[allow(dead_code)]
 fn target_triple() -> Result<String, String> {
     let (platform, arch) = zed::current_platform();
@@ -54,8 +54,8 @@ fn target_triple() -> Result<String, String> {
     Ok(format!("{arch}-{os}"))
 }
 
-/// 兜底：从 GitHub release 下载 LS 二进制（zip），返回解压后的可执行路径。
-/// 仅发布期使用；开发期 `local_ls_binary` 命中本地即返回，不会走到这里。
+/// Fallback: download the LS binary (zip) from a GitHub release, returning the extracted executable path.
+/// Only used at release time; during development `local_ls_binary` returns early.
 #[allow(dead_code)]
 fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     let release = zed::latest_github_release(
@@ -70,7 +70,7 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "<unknown cwd>".to_string());
         format!(
-            "本地未找到 hover-dict-ls 二进制，且无法从 GitHub 获取（{e}）。\
+            "No local translate-dict-lsp binary found, and failed to fetch it from GitHub ({e}). \
              [DIAG] cwd={cwd} pkg_ver={ver}",
             ver = env!("CARGO_PKG_VERSION"),
             e = e
@@ -78,22 +78,22 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     })?;
 
     let triple = target_triple()?;
-    // cargo-dist 产出的 asset 命名为 hover-dict-ls-<版本>-<target>.zip
-    // （不带 "v" 前缀，版本即 release.tag 去掉 v 后的 0.0.1）。
-    // 本地解压目录命名为 hover-dict-ls-<版本>/（与 CARGO_PKG_VERSION 对齐）。
+    // cargo-dist produces the asset translate-dict-lsp-<version>-<target>.zip
+    // (no "v" prefix; version is release.tag minus the leading "v", e.g. 0.0.1).
+    // The local extraction dir is translate-dict-lsp-<version>/ (aligned with CARGO_PKG_VERSION).
     let version = release
         .version
         .strip_prefix('v')
         .unwrap_or(&release.version);
-    let asset_name = format!("hover-dict-ls-{version}-{triple}.zip");
+    let asset_name = format!("translate-dict-lsp-{version}-{triple}.zip");
     let asset = release
         .assets
         .iter()
         .find(|a| a.name == asset_name)
         .ok_or_else(|| format!("no asset found matching {asset_name:?}"))?;
 
-    let version_dir = format!("hover-dict-ls-{version}");
-    let binary_path = Path::new(&version_dir).join(executable_name("hover-dict-ls"));
+    let version_dir = format!("translate-dict-lsp-{version}");
+    let binary_path = Path::new(&version_dir).join(executable_name("translate-dict-lsp"));
 
     if !fs::metadata(&binary_path).is_ok_and(|s| s.is_file()) {
         zed::set_language_server_installation_status(
@@ -117,32 +117,24 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     Ok(binary_path)
 }
 
-/// 开发模式下只在本地找 LS 二进制；找不到时返回 Err，并把 cwd /
-/// worktree_root 拼进错误信息，方便从 Zed 报错弹窗 / 日志快速定位
-/// （0.7.0 无 log 函数，借错误暴露）。
+/// In dev mode only look for the LS binary locally; if missing return Err and
+/// embed cwd / worktree_root in the message for quick diagnosis from Zed's
+/// error dialog / logs (0.7.0 has no log fn, so errors surface it).
 ///
-/// 实测：dev 扩展 wasm 的 cwd = ~/.local/share/zed/extensions/work/<id>/，
-/// 这是唯一确定能被 wasm 的 fs::metadata 访问的目录。worktree 根 /
-/// 绝对路径在 wasm 裸 fs 下读不到，故实际只搜 cwd（与 HOVER_DICT_LS_BIN
-/// 环境变量）。二进制由 scripts/dev-install.sh 安置到 cwd 下的
-/// hover-dict-ls-<版本>/ 中。
+/// Measured: the dev extension wasm cwd = ~/.local/share/zed/extensions/work/<id>/,
+/// the only dir that wasm fs::metadata can reliably access. The worktree root /
+/// absolute paths are unreadable under wasm's bare fs, so only cwd is searched.
+/// The binary and dict/ are placed by scripts/dev-install.sh into
+/// translate-dict-lsp-<version>/ under cwd.
 fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
-    let exe = executable_name("hover-dict-ls");
-    let version_dir = format!("hover-dict-ls-{}", env!("CARGO_PKG_VERSION"));
+    let exe = executable_name("translate-dict-lsp");
+    let version_dir = format!("translate-dict-lsp-{}", env!("CARGO_PKG_VERSION"));
 
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "<unknown cwd>".to_string());
 
-    // 1. 显式环境变量（最高优先级，绝对路径）
-    if let Ok(p) = std::env::var("HOVER_DICT_LS_BIN") {
-        let pb = PathBuf::from(&p);
-        if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
-            return Ok(pb);
-        }
-    }
-
-    // 2. wasm 运行时 cwd 下（唯一确定可访问的目录）
+    // Under the wasm runtime cwd (the only reliably accessible directory)
     for dir in [version_dir.as_str(), "target/release", "target/debug"] {
         let pb = Path::new(&cwd).join(dir).join(&exe);
         if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
@@ -151,8 +143,8 @@ fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
     }
 
     Err(format!(
-        "[hover-dict dev] 本地未找到 LS 二进制。请运行 scripts/dev-install.sh 安置 LS 二进制。\
-         cwd={cwd} worktree_root={worktree_root} exe={exe}"
+        "[translate-dict dev] No local language server binary found. Run scripts/dev-install.sh \
+         to place it. cwd={cwd} worktree_root={worktree_root} exe={exe}"
     ))
 }
 
@@ -167,24 +159,25 @@ impl TranslateDictExtension {
                 return Ok(path.clone());
             }
         }
-        // 本地优先：命中即返回，不再触碰 GitHub（开发期完全离线）
+        // Local first: return on hit, never touching GitHub (fully offline in dev)
         match local_ls_binary(worktree_root) {
             Ok(path) => {
                 self.cached_ls_binary_path = Some(path.clone());
                 return Ok(path);
             }
             Err(dev_err) => {
-                // 本地（dev / 用户自己放置）没找到时，回退到从 GitHub release
-                // 下载预编译的 LS 二进制。发布路径走 Zed 代理拉取，不受
-                // api.github.com 匿名 60 次/小时限流影响；且二进制下载一次即
-                // 缓存到 hover-dict-ls-<ver>/，之后 hover 全程走本地，不再联网。
+                // If no local binary (dev / user-placed) is found, fall back to
+                // downloading a prebuilt LS binary from a GitHub release. The
+                // release path goes through Zed's proxy, unaffected by the
+                // api.github.com anonymous 60 req/h limit; the binary is cached
+                // once in translate-dict-lsp-<ver>/, so hovers stay local afterwards.
                 match download_ls(language_server_id) {
                     Ok(path) => {
                         self.cached_ls_binary_path = Some(path.clone());
                         return Ok(path);
                     }
                     Err(dl_err) => Err(format!(
-                        "{dev_err}\n[hover-dict] 本地未找到 LS 二进制，且从 GitHub 下载失败：{dl_err}"
+                        "{dev_err}\n[translate-dict] No local binary found and GitHub download failed: {dl_err}"
                     )),
                 }
             }
@@ -218,17 +211,17 @@ impl zed::Extension for TranslateDictExtension {
         })
     }
 
-    /// 把默认配置与用户在 settings.json 写的 `lsp.hover-dict.initialization_options`
-    /// 合并，作为 LSP `initialize` 的 initializationOptions 传给 LS。
+    /// Merge defaults with the user's `lsp.translate-dict-lsp.initialization_options`
+    /// from settings.json, passing them to the LS as LSP `initialize` initializationOptions.
     fn language_server_initialization_options(
         &mut self,
         language_server_id: &LanguageServerId,
         worktree: &Worktree,
     ) -> Result<Option<Value>> {
         let mut options = json!({
-            "hover_dict.chinese_to_english_max_results": 10,
-            "hover_dict.default_translate_platform": "google",
-            "hover_dict.custom_translate_url": "",
+            "translate_dict_lsp.chinese_to_english_max_results": 10,
+            "translate_dict_lsp.default_translate_platform": "google",
+            "translate_dict_lsp.custom_translate_url": "",
         });
 
         if let Ok(lsp_settings) = LspSettings::for_worktree(language_server_id.as_ref(), worktree) {
@@ -240,17 +233,17 @@ impl zed::Extension for TranslateDictExtension {
         Ok(Some(options))
     }
 
-    /// 配置热更新通道：LS 声明了 didChangeConfiguration，Zed 改配置后会
-    /// 通过 workspace/configuration 请求这里，返回最新配置。
+    /// Config hot-reload channel: the LS declares didChangeConfiguration, so
+    /// after Zed settings change it queries this via workspace/configuration for the latest config.
     fn language_server_workspace_configuration(
         &mut self,
         language_server_id: &LanguageServerId,
         worktree: &Worktree,
     ) -> Result<Option<Value>> {
         let mut options = json!({
-            "hover_dict.chinese_to_english_max_results": 10,
-            "hover_dict.default_translate_platform": "google",
-            "hover_dict.custom_translate_url": "",
+            "translate_dict_lsp.chinese_to_english_max_results": 10,
+            "translate_dict_lsp.default_translate_platform": "google",
+            "translate_dict_lsp.custom_translate_url": "",
         });
 
         if let Ok(lsp_settings) = LspSettings::for_worktree(language_server_id.as_ref(), worktree) {
@@ -263,7 +256,7 @@ impl zed::Extension for TranslateDictExtension {
     }
 }
 
-/// 深度合并 JSON（对象递归、数组追加、标量覆盖），参考 tsgo 的 merge_json_value_into
+/// Deep-merge JSON (recurse objects, append arrays, overwrite scalars); ported from tsgo's merge_json_value_into
 fn merge_json(source: Value, target: &mut Value) {
     match (source, target) {
         (Value::Object(src), Value::Object(tgt)) => {

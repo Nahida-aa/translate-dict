@@ -396,28 +396,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hover-dict"
-version = "0.1.0"
-dependencies = [
- "zed_extension_api",
-]
-
-[[package]]
-name = "hover-dict-ls"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "arc-swap",
- "clap",
- "include_dir",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1097,6 +1075,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "translate-dict"
+version = "0.1.0"
+dependencies = [
+ "zed_extension_api",
+]
+
+[[package]]
+name = "translate-dict-lsp"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "arc-swap",
+ "clap",
+ "include_dir",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower-lsp",
 ]
 
 [[package]]

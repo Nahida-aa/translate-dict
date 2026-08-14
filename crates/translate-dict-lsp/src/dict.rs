@@ -1,12 +1,13 @@
-// 本地词库加载与查询。
-// 词库文件放在扩展仓库的 dict/ 目录，按单词前两字母分片
-// （aa.json ~ zz.json），每个文件是 { "word": {"w","p","t"} | "translation" }。
-// 启动时全部读入内存（约 760k 词，一次性加载、常驻）。
+// Local dictionary loading and lookup.
+// Dictionary files live in the extension repo's dict/ dir, sharded by the
+// word's first two letters (aa.json ~ zz.json); each file is { "word": {"w","p","t"} | "translation" }.
+// All of it is read into memory at startup (~760k words, loaded once, kept resident).
 //
-// 内存优化：DictEntry 不再存 word 字段——map 的键（小写词）即单词本身，
-// 重复存一份 String 是纯浪费（约 76 万条 × 一条 String 堆分配）。展示时用
-// 查询键即可（translate-dict 同样显示小写）。HashMap/HashSet 使用 ahash，
-// 比默认 SipHash 更快、桶更紧凑。
+// Memory optimization: DictEntry no longer stores a word field — the map key
+// (lowercased word) is the word itself, so a duplicated String is pure waste
+// (~760k entries x one String heap alloc). The query key is used for display
+// (translate-dict also shows lowercase). HashMap/HashSet use ahash, faster and
+// more compact than the default SipHash.
 
 use ahash::{AHashMap, AHashSet};
 use std::fs;
@@ -14,8 +15,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-// 编译期嵌入的内置词库（build.rs 生成字面量路径到 OUT_DIR/embedded_dict.rs）。
-// 仅发布二进制需要它；开发期有文件系统 dict/，不会用到这份嵌入副本。
+// Built-in dictionary embedded at compile time (build.rs writes the literal path to OUT_DIR/embedded_dict.rs).
+// Only release binaries need it; in dev the filesystem dict/ is used instead.
 include!(concat!(env!("OUT_DIR"), "/embedded_dict.rs"));
 
 #[derive(Clone)]
@@ -25,10 +26,10 @@ pub struct DictEntry {
 }
 
 pub struct Dictionary {
-    /// 键为小写词，值即词条（不含 word 字段）
+    /// Key is the lowercased word; value is the entry (no word field)
     map: AHashMap<String, DictEntry>,
-    /// 中文词索引：从词条翻译文本里提取的 2~3 字全中文片段。
-    /// 用于中文正向最大匹配（FMM）分词，O(1) 判定子串是否为有效中文词。
+    /// Chinese word index: 2~3-char pure-Chinese fragments extracted from entry translations.
+    /// Used for Chinese forward-maximum-matching (FMM) segmentation, O(1) check of valid Chinese words.
     chinese_words: AHashSet<String>,
 }
 
@@ -37,7 +38,7 @@ impl Dictionary {
         let mut map: AHashMap<String, DictEntry> = AHashMap::new();
         let mut chinese_words: AHashSet<String> = AHashSet::new();
 
-        // 从翻译文本提取中文词片段时使用的分隔符（与 reverse_query 一致）
+        // Separators used when extracting Chinese word fragments from translations (consistent with reverse_query)
         let sep: &[char] = &[
             '；', ';', '、', '，', ',', ' ', '\n', '.', '：', ':', '（', '(', '）', ')', '《', '<',
             '》', '>', '“', '"', '”', '【', '[', '】', ']', '！', '!', '？', '?', '—', '~', '·',
@@ -83,9 +84,10 @@ impl Dictionary {
                             };
                             map.insert(key.to_lowercase(), entry);
 
-                            // 从翻译文本提取 2~3 字全中文片段，建中文词索引。
-                            // 仅取 2~3 字：4 字中文多为短语/句子碎片，作 FMM
-                            // 词典词价值低且占近半索引内存；FMM 退化为 2+2 切分。
+                            // Extract 2~3-char pure-Chinese fragments from the translation to build the Chinese word index.
+                            // Only 2~3 chars: 4-char Chinese is mostly phrases/sentence fragments, low value
+                            // as FMM dictionary words and would consume nearly half the index memory;
+                            // FMM then degrades to a 2+2 split.
                             for frag in translation.split(sep) {
                                 let chars: Vec<char> = frag
                                     .chars()
@@ -104,10 +106,11 @@ impl Dictionary {
         Self { map, chinese_words }
     }
 
-    /// 加载词库：优先读文件系统的 dict/（开发期，便于改词库不重编二进制），
-    /// 找不到时回退到编译期嵌入的 dict/（发布二进制自带，无需外部文件）。
-    /// 这样发布的 LS 二进制是自包含的——cargo-dist 只打包二进制，
-    /// 不会带 dict/ 目录，必须靠嵌入才能给最终用户正常翻译。
+    /// Load the dictionary: prefer the filesystem dict/ (dev, so the dictionary can be
+    /// changed without recompiling), falling back to the compile-time embedded dict/
+    /// (release binaries carry it, needing no external files).
+    /// This keeps the released LS binary self-contained — cargo-dist ships only the
+    /// binary, not the dict/ dir, so embedding is required for end users to translate.
     pub fn load() -> Self {
         let fs_dir = crate::dict_dir();
         let fs_dict = Self::load_from_dir(&fs_dir);
@@ -117,7 +120,7 @@ impl Dictionary {
         Self::load_embedded()
     }
 
-    /// 从编译期嵌入的 dict/ 加载（include_dir! 在编译时把整个目录打进二进制）。
+    // Load from the compile-time embedded dict/ (include_dir! bakes the whole dir into the binary at build time).
     fn load_embedded() -> Self {
         let mut map: AHashMap<String, DictEntry> = AHashMap::new();
         let mut chinese_words: AHashSet<String> = AHashSet::new();
@@ -182,12 +185,12 @@ impl Dictionary {
         Self { map, chinese_words }
     }
 
-    /// 按原始变体字符串查词（变体已含大小写，内部统一转小写键）
+    /// Look up by the raw variant string (variant already has case; internally normalized to a lowercase key)
     pub(crate) fn lookup_variant(&self, variant: &str) -> Option<&DictEntry> {
         self.map.get(&variant.to_lowercase())
     }
 
-    /// 查询单词，返回匹配的词条（委托给 query.rs::query_dict）
+    /// Query a word, returning the matching entry (delegates to query.rs::query_dict)
     pub fn lookup(&self, word: &str) -> Option<&DictEntry> {
         crate::query::query_dict(word, self)
     }
@@ -196,12 +199,16 @@ impl Dictionary {
         crate::query::is_word_in_dict(word, self)
     }
 
-    /// 返回全部 (小写词, 词条)（用于中译英反向查询的全表扫描）
+    /// Return all (lowercased word, entry) pairs (used for the full scan of Chinese-to-English reverse queries)
     pub fn entries(&self) -> impl Iterator<Item = (&str, &DictEntry)> {
         self.map.iter().map(|(k, v)| (k.as_str(), v))
     }
 
-    /// 中文正向最大匹配：判断 `text` 是否是一个已知中文词（在中文词索引里）
+    /// Chinese FMM: check whether `text` is a known Chinese word (present in the Chinese word index)
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn is_chinese_word(&self, text: &str) -> bool {
         let chars: Vec<char> = text
             .chars()
@@ -220,16 +227,16 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// 在临时目录写一个迷你词库，返回目录路径
+    /// Write a mini dictionary into a temp dir, returning the dir path
     fn make_temp_dict() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let mut f = std::fs::File::create(dir.path().join("us.json")).unwrap();
-        // 字符串形式词条
+        // String-form entry
         writeln!(f, "{{\"user\": \"n. 使用者\", \"use\": \"vt. 使用\"}}").unwrap();
         drop(f);
 
         let mut f2 = std::fs::File::create(dir.path().join("pr.json")).unwrap();
-        // 对象形式词条（含音标/翻译）
+        // Object-form entry (with phonetic / translation)
         writeln!(
             f2,
             "{{\"profile\": {{\"w\": \"profile\", \"p\": \"'prәufail\", \"t\": \"n. 侧面\"}}}}"
@@ -244,7 +251,7 @@ mod tests {
     fn test_load_and_lookup_string_entry() {
         let dir = make_temp_dict();
         let dict = Dictionary::load_from_dir(dir.path());
-        // 迷你词库含 user / use / profile 三条
+        // The mini dictionary contains user / use / profile
         assert!(dict.lookup("user").is_some());
         assert!(dict.lookup("use").is_some());
         assert!(dict.lookup("profile").is_some());
@@ -266,7 +273,7 @@ mod tests {
     fn test_lookup_case_insensitive() {
         let dir = make_temp_dict();
         let dict = Dictionary::load_from_dir(dir.path());
-        // 小写查询应命中
+        // Lowercase queries should match
         assert!(dict.lookup("USER").is_some());
         assert!(dict.lookup("User").is_some());
     }
@@ -279,8 +286,8 @@ mod tests {
         assert!(dict.contains("nonexistent") == false);
     }
 
-    /// 验证编译期嵌入词库可用（发布二进制无外部 dict/ 时的回退路径）。
-    /// 嵌入的是仓库根完整词库，应含常见词如 "user"。
+    /// Verify the compile-time embedded dictionary works (fallback path for released binaries without an external dict/).
+    /// It embeds the repo-root full dictionary, so it should contain common words like "user".
     #[test]
     fn test_load_embedded_fallback() {
         let dict = Dictionary::load_embedded();
@@ -292,7 +299,7 @@ mod tests {
             dict.lookup("user").is_some(),
             "embedded dict missing 'user'"
         );
-        // 中文词索引应已建立（用户 是 2 字中文词）
+        // Chinese word index should be built (2-char Chinese words are indexed)
         assert!(dict.is_chinese_word("用户"), "embedded dict missing 用户");
     }
 }

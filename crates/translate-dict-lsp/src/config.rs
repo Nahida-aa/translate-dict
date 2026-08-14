@@ -1,11 +1,11 @@
-// 用户配置（来自 Zed settings.json 的 lsp.hover-dict.initialization_options）
+// User config (from Zed settings.json's lsp.translate-dict.initialization_options)
 //
-// 注意：语言级启用/禁用由 Zed 原生的 `languages.<Lang>.language_servers`
-// 控制，本扩展不再重复实现黑白名单。
+// Note: language-level enable/disable is controlled by Zed's native
+// `languages.<Lang>.language_servers`; this extension does not reimplement allow/deny.
 
 use serde::Deserialize;
 
-/// 翻译平台 URL 模板：{word} 为占位符
+/// Translation platform URL templates: {word} is the placeholder
 pub const PLATFORM_URLS: &[(&str, &str)] = &[
     ("google", "https://translate.google.com/?text={word}"),
     ("baidu", "https://fanyi.baidu.com/#en/zh/{word}"),
@@ -17,14 +17,14 @@ pub const PLATFORM_URLS: &[(&str, &str)] = &[
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct Settings {
-    /// 中译英最多返回候选数
-    #[serde(rename = "hover_dict.chinese_to_english_max_results")]
+    /// Max candidates returned for Chinese-to-English
+    #[serde(rename = "translate_dict_lsp.chinese_to_english_max_results")]
     pub chinese_to_english_max_results: usize,
-    /// 单词/结果跳转的默认平台：google/baidu/deepl/bing/yandex/custom
-    #[serde(rename = "hover_dict.default_translate_platform")]
+    /// Default platform for word/result links: google/baidu/deepl/bing/yandex/custom
+    #[serde(rename = "translate_dict_lsp.default_translate_platform")]
     pub default_translate_platform: String,
-    /// default_translate_platform=custom 时的 URL 模板，{word} 占位符
-    #[serde(rename = "hover_dict.custom_translate_url")]
+    /// URL template when default_translate_platform=custom; {word} placeholder
+    #[serde(rename = "translate_dict_lsp.custom_translate_url")]
     pub custom_translate_url: String,
 }
 
@@ -37,7 +37,7 @@ impl Settings {
         }
     }
 
-    /// 根据默认平台与自定义 URL 生成某个单词的跳转链接
+    /// Build the jump link for a word from the default platform and custom URL
     pub fn platform_url(&self, word: &str) -> String {
         let encoded = urlencode(word);
         let template: &str = if self.default_translate_platform == "custom"
@@ -55,7 +55,7 @@ impl Settings {
     }
 }
 
-/// 极简 URL encode（仅编码空格，英文单词场景足够）
+/// Minimal URL encoding (only encodes spaces; sufficient for English words)
 pub fn urlencode(s: &str) -> String {
     s.replace(' ', "%20")
 }

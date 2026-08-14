@@ -1,12 +1,12 @@
 [package]
-name = "hover-dict-ls"
+name = "translate-dict-lsp"
 version.workspace = true
 edition = "2021"
-repository = "https://github.com/Nahida-aa/hover-dict"
+repository = "https://github.com/Nahida-aa/translate-dict"
 build = "build.rs"
 
 [[bin]]
-name = "hover-dict-ls"
+name = "translate-dict-lsp"
 path = "src/main.rs"
 
 [dependencies]
