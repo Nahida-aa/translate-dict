@@ -66,12 +66,9 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
         },
     )
     .map_err(|e| {
-        let cwd = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "<unknown cwd>".to_string());
         format!(
             "No local translate-dict-lsp binary found, and failed to fetch it from GitHub ({e}). \
-             [DIAG] cwd={cwd} pkg_ver={ver}",
+             [DIAG] pkg_ver={ver}",
             ver = env!("CARGO_PKG_VERSION"),
             e = e
         )
@@ -118,25 +115,23 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
 }
 
 /// In dev mode only look for the LS binary locally; if missing return Err and
-/// embed cwd / worktree_root in the message for quick diagnosis from Zed's
+/// embed the searched dirs in the message for quick diagnosis from Zed's
 /// error dialog / logs (0.7.0 has no log fn, so errors surface it).
 ///
 /// Measured: the dev extension wasm cwd = ~/.local/share/zed/extensions/work/<id>/,
 /// the only dir that wasm fs::metadata can reliably access. The worktree root /
-/// absolute paths are unreadable under wasm's bare fs, so only cwd is searched.
+/// absolute paths are unreadable under wasm's bare fs, so only relative paths
+/// (resolved against the wasm cwd) are searched.
 /// The binary and dict/ are placed by scripts/dev-install.sh into
 /// translate-dict-lsp-<version>/ under cwd.
 fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
     let exe = executable_name("translate-dict-lsp");
     let version_dir = format!("translate-dict-lsp-{}", env!("CARGO_PKG_VERSION"));
 
-    let cwd = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "<unknown cwd>".to_string());
-
-    // Under the wasm runtime cwd (the only reliably accessible directory)
+    // Under the wasm runtime the cwd (the only reliably accessible directory)
+    // is the extension work dir, so relative paths resolve against it.
     for dir in [version_dir.as_str(), "target/release", "target/debug"] {
-        let pb = Path::new(&cwd).join(dir).join(&exe);
+        let pb = Path::new(dir).join(&exe);
         if fs::metadata(&pb).is_ok_and(|s| s.is_file()) {
             return Ok(pb);
         }
@@ -144,7 +139,8 @@ fn local_ls_binary(worktree_root: &str) -> Result<PathBuf, String> {
 
     Err(format!(
         "[translate-dict dev] No local language server binary found. Run scripts/dev-install.sh \
-         to place it. cwd={cwd} worktree_root={worktree_root} exe={exe}"
+         to place it. searched(relative)={dirs} worktree_root={worktree_root} exe={exe}",
+        dirs = [version_dir.as_str(), "target/release", "target/debug"].join(", "),
     ))
 }
 
