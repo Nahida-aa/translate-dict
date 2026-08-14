@@ -62,19 +62,19 @@ impl LanguageServer for TranslateDictServer {
             .log_message(
                 MessageType::INFO,
                 &format!(
-                    "[translate-dict] dict loaded: {} entries from {}",
+                    "[translate-dict-lsp] dict loaded: {} entries from {}",
                     dict.len(),
                     crate::dict_dir().display(),
                 ),
             )
             .await;
 
-        // Read user config (from Zed settings.json's lsp.translate-dict.initialization_options)
+        // Read user config (from Zed settings.json's lsp.translate-dict-lsp.initialization_options)
         let raw_opts = params.initialization_options.clone();
         self.client
             .log_message(
                 MessageType::INFO,
-                &format!("[translate-dict] initialization_options = {:?}", raw_opts),
+                &format!("[translate-dict-lsp] initialization_options = {:?}", raw_opts),
             )
             .await;
         let settings: Settings = raw_opts
@@ -84,7 +84,7 @@ impl LanguageServer for TranslateDictServer {
             .log_message(
                 MessageType::INFO,
                 &format!(
-                    "[translate-dict] parsed platform = {}, max_results = {}",
+                    "[translate-dict-lsp] parsed platform = {}, max_results = {}",
                     settings.default_translate_platform,
                     settings.max_results()
                 ),
