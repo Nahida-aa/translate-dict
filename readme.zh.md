@@ -109,7 +109,3 @@ cargo test -p translate-dict-lsp --test e2e
 ## 许可
 
 [MIT](LICENSE) © 2026 Nahida-aa
-
-## 贡献
-
-参见 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何将本扩展发布到 Zed 扩展商店。

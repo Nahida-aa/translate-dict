@@ -23,18 +23,18 @@ All settings are written under the `lsp.translate-dict-lsp.initialization_option
       "initialization_options": {
         "translate_dict_lsp.chinese_to_english_max_results": 10, // 1..50
         "translate_dict_lsp.default_translate_platform": "google",
-        "translate_dict_lsp.custom_translate_url": ""        // used when platform = "custom"
-      }
-    }
-  }
+        "translate_dict_lsp.custom_translate_url": "", // used when platform = "custom"
+      },
+    },
+  },
 }
 ```
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `translate_dict_lsp.chinese_to_english_max_results` | number | `10` | Max candidates returned for Chinese → English reverse query (clamped to 1..50). |
-| `translate_dict_lsp.default_translate_platform` | string (enum) | `"google"` | Platform the word link jumps to. One of: `google`, `baidu`, `deepl`, `bing`, `yandex`, `custom`. |
-| `translate_dict_lsp.custom_translate_url` | string | `""` | URL template used when `default_translate_platform` is `custom`. Use `{word}` as the placeholder (e.g. `https://fanyi.baidu.com/#en/zh/{word}`). |
+| Key                                                 | Type          | Default    | Description                                                                                                                                      |
+| --------------------------------------------------- | ------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `translate_dict_lsp.chinese_to_english_max_results` | number        | `10`       | Max candidates returned for Chinese → English reverse query (clamped to 1..50).                                                                  |
+| `translate_dict_lsp.default_translate_platform`     | string (enum) | `"google"` | Platform the word link jumps to. One of: `google`, `baidu`, `deepl`, `bing`, `yandex`, `custom`.                                                 |
+| `translate_dict_lsp.custom_translate_url`           | string        | `""`       | URL template used when `default_translate_platform` is `custom`. Use `{word}` as the placeholder (e.g. `https://fanyi.baidu.com/#en/zh/{word}`). |
 
 > **Enabling / disabling per language**: use Zed's native `languages` setting instead of a built-in allow/deny list — e.g. to disable the hover translation for Markdown, add `"!translate-dict-lsp"` to `languages.Markdown.language_servers`. Changes to settings are picked up live (no restart needed).
 
@@ -108,8 +108,3 @@ The built-in ~760k-word English dictionary is derived from **[ECDICT](https://gi
 ## License
 
 [MIT](LICENSE) © 2026 Nahida-aa
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to publish this extension to the Zed extension store.
-
