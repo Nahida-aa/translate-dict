@@ -214,7 +214,7 @@ impl LanguageServer for TranslateDictServer {
                 .iter()
                 .map(|r| markdown::reverse_result_to_markdown(r, &settings))
                 .collect();
-            let markdown = format!("中译英 `{}` :  \n{}", word, blocks.join("\n*****\n"));
+            let markdown = format!("中译英 `{}` :  \n{}", word, blocks.join("\n\n*****\n\n"));
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
@@ -250,7 +250,7 @@ impl LanguageServer for TranslateDictServer {
             }));
         }
 
-        let markdown = blocks.join("\n*****\n");
+        let markdown = blocks.join("\n\n*****\n\n");
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
