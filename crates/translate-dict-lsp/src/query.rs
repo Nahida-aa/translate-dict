@@ -26,7 +26,7 @@ pub fn get_word_variants(word: &str) -> Vec<String> {
     variants
 }
 
-pub fn query_dict<'a>(word: &str, dict: &'a Dictionary) -> Option<&'a DictEntry> {
+pub fn query_dict(word: &str, dict: &Dictionary) -> Option<DictEntry> {
     if word.len() < 2 {
         return None;
     }
@@ -37,10 +37,6 @@ pub fn query_dict<'a>(word: &str, dict: &'a Dictionary) -> Option<&'a DictEntry>
         }
     }
     None
-}
-
-pub fn is_word_in_dict(word: &str, dict: &Dictionary) -> bool {
-    query_dict(word, dict).is_some()
 }
 
 #[cfg(test)]
@@ -76,23 +72,26 @@ mod tests {
 
     #[test]
     fn test_query_dict_string_entry() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         let e = query_dict("user", &dict).expect("user exists");
         assert_eq!(e.translation, "n. 使用者");
     }
 
     #[test]
     fn test_query_dict_object_entry() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         let e = query_dict("Profile", &dict).expect("profile exists");
         assert_eq!(e.phonetic, "'prәufail");
     }
 
     #[test]
     fn test_query_dict_case_insensitive() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
-        assert!(is_word_in_dict("USER", &dict));
-        assert!(is_word_in_dict("User", &dict));
-        assert!(!is_word_in_dict("nope", &dict));
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
+        assert!(dict.contains("USER"));
+        assert!(dict.contains("User"));
+        assert!(!dict.contains("nope"));
     }
 }

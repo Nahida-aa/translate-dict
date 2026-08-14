@@ -62,8 +62,8 @@ impl LanguageServer for TranslateDictServer {
             .log_message(
                 MessageType::INFO,
                 &format!(
-                    "[translate-dict-lsp] dict loaded: {} entries from {}",
-                    dict.len(),
+                    "[translate-dict-lsp] dict loaded: {} shards from {}",
+                    dict.shard_count(),
                     crate::dict_dir().display(),
                 ),
             )
@@ -199,7 +199,7 @@ impl LanguageServer for TranslateDictServer {
 
         // Chinese selection -> Chinese-to-English (reverse query)
         if reverse_query::contains_chinese(&word) {
-            let results = reverse_query::reverse_query(&word, dict, settings.max_results());
+            let results = dict.reverse_query(&word, settings.max_results());
             if results.is_empty() {
                 let markdown = format!("中译英 `{}` :  \n本地词库暂无匹配的英文单词。", word);
                 return Ok(Some(Hover {
@@ -232,7 +232,7 @@ impl LanguageServer for TranslateDictServer {
                 // Display word: lowercased (map keys are lowercase words, no extra word field stored)
                 blocks.push(markdown::entry_to_markdown(
                     &part.to_lowercase(),
-                    entry,
+                    &entry,
                     &settings,
                 ));
             }

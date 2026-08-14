@@ -1092,6 +1092,7 @@ dependencies = [
  "arc-swap",
  "clap",
  "include_dir",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

@@ -442,7 +442,8 @@ mod tests {
 
     #[test]
     fn test_camel_case() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         // Splits preserve original casing (consistent with translate-dict's parseAndQuery);
         // the hover display later uses the canonical (lowercase) form from the dictionary.
         assert_eq!(
@@ -457,25 +458,29 @@ mod tests {
 
     #[test]
     fn test_pascal_case() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         assert_eq!(parse_and_query("UserName", &dict), vec!["User", "Name"]);
     }
 
     #[test]
     fn test_snake_case() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         assert_eq!(parse_and_query("user_name", &dict), vec!["user", "name"]);
     }
 
     #[test]
     fn test_kebab_case() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         assert_eq!(parse_and_query("user-name", &dict), vec!["user", "name"]);
     }
 
     #[test]
     fn test_abbreviation_chain() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         // HTTPService -> HTTP + Service (split parts keep original casing)
         let parts = parse_and_query("HTTPService", &dict);
         assert!(parts.contains(&"Service".to_string()));
@@ -484,7 +489,8 @@ mod tests {
 
     #[test]
     fn test_lowercase_compound() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         assert_eq!(
             parse_and_query("redblacktree", &dict),
             vec!["red", "black", "tree"]
@@ -493,13 +499,15 @@ mod tests {
 
     #[test]
     fn test_digits_filtered() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         assert_eq!(parse_and_query("user123", &dict), vec!["user"]);
     }
 
     #[test]
     fn test_dedup_case_insensitive() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         // User/user deduplicated (case-insensitive), original-casing fragments kept
         let parts = parse_and_query("Useruser", &dict);
         assert_eq!(parts, vec!["User"]);
@@ -507,7 +515,8 @@ mod tests {
 
     #[test]
     fn test_short_word_ignored() {
-        let dict = Dictionary::load_from_dir(temp_dict().path());
+        let dir = temp_dict();
+        let dict = Dictionary::load_from_dir(dir.path());
         // Fragments of length <= 1 are filtered out
         assert!(parse_and_query("a", &dict).is_empty());
     }

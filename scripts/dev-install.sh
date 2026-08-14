@@ -8,7 +8,7 @@
 #      finds it locally first - fully offline, no GitHub rate-limit issues.
 #
 # Key fact (verified): in dev mode the extension shell wasm runs with cwd =
-#   ~/.local/share/zed/extensions/work/translate-dict/
+#   ~/.local/share/zed/extensions/work/<extension-id>/   (id = translate-dict-lsp)
 # This is the only directory the wasm's fs::metadata can reliably access;
 # the worktree root / absolute paths are not readable from raw wasm fs.
 # So the LS binary must live at <cwd>/translate-dict-lsp-<version>/.
@@ -19,7 +19,7 @@
 # Zed dev mode hot-reloads: re-running this script overwrites the binary and
 # takes effect immediately - no need to manually run
 # `zed: install dev extension` / rebuild extensions / restart language server.
-# Note: reinstalling the dev extension may clear work/translate-dict/;
+# Note: reinstalling the dev extension may clear work/<extension-id>/;
 # re-run this script afterwards to restore the LS binary.
 
 set -euo pipefail
@@ -29,8 +29,9 @@ cd "$ROOT"
 
 PKG_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')"
 LS_BIN_NAME="translate-dict-lsp"
+EXT_ID="$(grep -m1 '^id' extension.toml | sed -E 's/id *= *"([^"]+)"/\1/')"
 CACHE_REL="$LS_BIN_NAME-$PKG_VERSION"
-WORK_DIR="${ZED_WORK_DIR:-$HOME/.local/share/zed/extensions/work/translate-dict}"
+WORK_DIR="${ZED_WORK_DIR:-$HOME/.local/share/zed/extensions/work/$EXT_ID}"
 CACHE_DIR="$WORK_DIR/$CACHE_REL"
 
 echo "==> Building extension shell (wasm32-wasip1 --release)"

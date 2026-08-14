@@ -1,11 +1,10 @@
 // Chinese-to-English reverse query.
 //
-// On Chinese hover, scan every dictionary entry and find English words whose
+// On Chinese hover, scan every dictionary shard and find English words whose
 // translations contain the Chinese word; sort by match score and return the top N.
-// Offline, full scan, but the resident in-memory dictionary keeps it fast.
+// Offline full scan that never pollutes the lookup LRU cache.
 
-use crate::dict::Dictionary;
-
+#[derive(Clone)]
 pub struct ReverseResult {
     pub word: String,
     pub translation: String,
@@ -19,7 +18,7 @@ pub fn contains_chinese(text: &str) -> bool {
     has_chinese && !has_english
 }
 
-fn calculate_match_score(translation: &str, search: &str) -> i64 {
+pub fn calculate_match_score(translation: &str, search: &str) -> i64 {
     if translation == search {
         return 1000;
     }
@@ -41,40 +40,4 @@ fn calculate_match_score(translation: &str, search: &str) -> i64 {
         return 500 + (length_ratio * 100.0) as i64 - position_penalty as i64;
     }
     0
-}
-
-/// Reverse query: given Chinese, return matching English words (sorted by score descending)
-pub fn reverse_query(chinese: &str, dict: &Dictionary, max_results: usize) -> Vec<ReverseResult> {
-    let cleaned = chinese.trim();
-    if cleaned.is_empty() || !contains_chinese(cleaned) {
-        return vec![];
-    }
-
-    let mut matches: Vec<(i64, String, ReverseResult)> = Vec::new();
-
-    for (word, entry) in dict.entries() {
-        if entry.translation.contains(cleaned) {
-            let score = calculate_match_score(&entry.translation, cleaned);
-            matches.push((
-                score,
-                word.to_string(),
-                ReverseResult {
-                    word: word.to_string(),
-                    translation: entry.translation.clone(),
-                    phonetic: entry.phonetic.clone(),
-                },
-            ));
-        }
-    }
-
-    matches.sort_by(|a, b| {
-        b.0.cmp(&a.0) // score descending
-            .then_with(|| a.1.cmp(&b.1)) // ties broken by alphabetical word order
-    });
-
-    matches
-        .into_iter()
-        .take(max_results)
-        .map(|(_, _, r)| r)
-        .collect()
 }
