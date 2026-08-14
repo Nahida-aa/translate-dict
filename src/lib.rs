@@ -75,14 +75,15 @@ fn download_ls(language_server_id: &LanguageServerId) -> Result<PathBuf> {
     })?;
 
     let triple = target_triple()?;
-    // cargo-dist produces the asset translate-dict-lsp-<version>-<target>.zip
-    // (no "v" prefix; version is release.tag minus the leading "v", e.g. 0.0.1).
-    // The local extraction dir is translate-dict-lsp-<version>/ (aligned with CARGO_PKG_VERSION).
+    // cargo-dist produces the asset translate-dict-lsp-<target>.zip
+    // (archive template has no version, e.g. translate-dict-lsp-x86_64-unknown-linux-gnu.zip).
+    // The local extraction dir is translate-dict-lsp-<version>/ (version from the release tag,
+    // aligned with CARGO_PKG_VERSION).
     let version = release
         .version
         .strip_prefix('v')
         .unwrap_or(&release.version);
-    let asset_name = format!("translate-dict-lsp-{version}-{triple}.zip");
+    let asset_name = format!("translate-dict-lsp-{triple}.zip");
     let asset = release
         .assets
         .iter()
