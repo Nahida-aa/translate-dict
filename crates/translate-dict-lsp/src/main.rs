@@ -201,7 +201,7 @@ impl LanguageServer for TranslateDictServer {
         if reverse_query::contains_chinese(&word) {
             let results = dict.reverse_query(&word, settings.max_results());
             if results.is_empty() {
-                let markdown = format!("中译英 `{}` :  \n本地词库暂无匹配的英文单词。", word);
+                let markdown = "本地词库暂无匹配的英文单词。".to_string();
                 return Ok(Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
@@ -214,7 +214,7 @@ impl LanguageServer for TranslateDictServer {
                 .iter()
                 .map(|r| markdown::reverse_result_to_markdown(r, &settings))
                 .collect();
-            let markdown = format!("中译英 `{}` :  \n{}", word, blocks.join("\n\n*****\n\n"));
+            let markdown = blocks.join("\n\n*****\n\n");
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,

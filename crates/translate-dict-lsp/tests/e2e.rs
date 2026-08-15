@@ -233,7 +233,7 @@ fn e2e_hover_chinese_reverse() {
 
     // Chinese-to-English: should list English candidates (e.g. item / project)
     assert!(
-        md.contains("中译英") && (md.contains("[item](") || md.contains("[project](")),
+        md.contains("[item](") || md.contains("[project]("),
         "unexpected chinese reverse result:\n{md}"
     );
 }
